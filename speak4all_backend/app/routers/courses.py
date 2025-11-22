@@ -1,0 +1,321 @@
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+
+from datetime import datetime, timezone
+
+from ..database import get_db
+from .. import models, schemas
+from ..deps import get_current_user
+import secrets
+
+router = APIRouter()
+
+
+@router.post("/", response_model=schemas.CourseOut)
+def create_course(
+    data: schemas.CourseCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    if current_user.role != models.UserRole.THERAPIST:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo terapeutas pueden crear cursos",
+        )
+
+    join_code = secrets.token_urlsafe(6)  # ej: 'sKds_a'
+    course = models.Course(
+        therapist_id=current_user.id,
+        name=data.name,
+        description=data.description,
+        join_code=join_code,
+    )
+    db.add(course)
+    db.commit()
+    db.refresh(course)
+    return course
+
+
+@router.post("/join", response_model=schemas.CourseJoinRequestOut)
+def request_join_course(
+    data: schemas.JoinCourseRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    if current_user.role != models.UserRole.STUDENT:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo estudiantes pueden unirse a cursos",
+        )
+
+    course = db.query(models.Course).filter(
+        models.Course.join_code == data.join_code,
+        models.Course.deleted_at.is_(None),
+    ).first()
+
+    if not course:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Curso no encontrado",
+        )
+
+    # evitar duplicados
+    existing = db.query(models.CourseJoinRequest).filter(
+        models.CourseJoinRequest.course_id == course.id,
+        models.CourseJoinRequest.student_id == current_user.id,
+    ).first()
+    if existing:
+        return existing
+
+    req = models.CourseJoinRequest(
+        course_id=course.id,
+        student_id=current_user.id,
+    )
+    db.add(req)
+    db.commit()
+    db.refresh(req)
+    return req
+
+
+@router.get("/my", response_model=list[schemas.CourseOut])
+def list_my_courses(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # Como terapeuta: cursos que creó
+    if current_user.role == models.UserRole.THERAPIST:
+        courses = db.query(models.Course).filter(
+            models.Course.therapist_id == current_user.id,
+            models.Course.deleted_at.is_(None),
+        ).all()
+        return courses
+
+    # Como estudiante: cursos donde está en CourseStudent
+    q = (
+        db.query(models.Course)
+        .join(models.CourseStudent, models.CourseStudent.course_id == models.Course.id)
+        .filter(
+            models.CourseStudent.student_id == current_user.id,
+            models.CourseStudent.is_active.is_(True),
+            models.Course.deleted_at.is_(None),
+        )
+        .all()
+    )
+    return q
+
+
+
+
+# ==== HELPER PARA VALIDAR QUE EL USUARIO ES TERAPEUTA DEL CURSO ====
+
+def get_course_owned_or_404(
+    db: Session,
+    course_id: int,
+    current_user: models.User,
+) -> models.Course:
+    course = db.query(models.Course).filter(
+        models.Course.id == course_id,
+        models.Course.deleted_at.is_(None),
+    ).first()
+
+    if not course:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Curso no encontrado",
+        )
+
+    if course.therapist_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No eres el terapeuta de este curso",
+        )
+
+    return course
+
+
+# ==== 1) LISTAR SOLICITUDES PENDIENTES DE UN CURSO ====
+
+@router.get(
+    "/{course_id}/requests",
+    response_model=list[schemas.CourseJoinRequestOut],
+)
+def list_join_requests(
+    course_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    course = get_course_owned_or_404(db, course_id, current_user)
+
+    reqs = db.query(models.CourseJoinRequest).filter(
+        models.CourseJoinRequest.course_id == course.id,
+        models.CourseJoinRequest.status == models.JoinRequestStatus.PENDING,
+    ).all()
+
+    return reqs
+
+
+# ==== 2) ACEPTAR / RECHAZAR UNA SOLICITUD ====
+
+@router.post(
+    "/{course_id}/requests/{request_id}/decision",
+    response_model=schemas.CourseJoinRequestOut,
+)
+def decide_join_request(
+    course_id: int,
+    request_id: int,
+    decision: schemas.JoinRequestDecision,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    course = get_course_owned_or_404(db, course_id, current_user)
+
+    req = db.query(models.CourseJoinRequest).filter(
+        models.CourseJoinRequest.id == request_id,
+        models.CourseJoinRequest.course_id == course.id,
+    ).first()
+
+    if not req:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Solicitud no encontrada",
+        )
+
+    if req.status != models.JoinRequestStatus.PENDING:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La solicitud ya fue procesada",
+        )
+
+    # actualizar estado
+    req.status = (
+        models.JoinRequestStatus.ACCEPTED
+        if decision.accept
+        else models.JoinRequestStatus.REJECTED
+    )
+    req.decided_at = datetime.now(timezone.utc)
+
+    # si se acepta, creamos CourseStudent (si no existe ya)
+    if decision.accept:
+        existing = db.query(models.CourseStudent).filter(
+            models.CourseStudent.course_id == course.id,
+            models.CourseStudent.student_id == req.student_id,
+            models.CourseStudent.deleted_at.is_(None),
+        ).first()
+
+        if not existing:
+            cs = models.CourseStudent(
+                course_id=course.id,
+                student_id=req.student_id,
+            )
+            db.add(cs)
+
+    db.commit()
+    db.refresh(req)
+    return req
+
+
+# ==== 3) LISTAR ESTUDIANTES + PROGRESO EN UN CURSO ====
+
+@router.get(
+    "/{course_id}/students",
+    response_model=list[schemas.StudentProgressOut],
+)
+def list_course_students(
+    course_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    course = get_course_owned_or_404(db, course_id, current_user)
+
+    # Subquery: total de ejercicios publicados en el curso
+    total_exercises = (
+        db.query(func.count(models.CourseExercise.id))
+        .filter(
+            models.CourseExercise.course_id == course.id,
+            models.CourseExercise.is_deleted.is_(False),
+        )
+        .scalar()
+    )
+
+    # Query principal: alumnos + progreso
+    # Usamos left join sobre submissions para contar cuántos DONE tiene cada uno
+    rows = (
+        db.query(
+            models.CourseStudent.id.label("course_student_id"),
+            models.User.id.label("student_id"),
+            models.User.full_name.label("student_name"),
+            func.count(
+                func.nullif(
+                    models.Submission.status != models.SubmissionStatus.DONE,
+                    True,
+                )
+            ).label("completed_exercises"),
+            func.max(models.Submission.created_at).label("last_submission_at"),
+        )
+        .join(models.User, models.User.id == models.CourseStudent.student_id)
+        .outerjoin(
+            models.Submission,
+            models.Submission.course_exercise_id.in_(
+                db.query(models.CourseExercise.id).filter(
+                    models.CourseExercise.course_id == course.id,
+                    models.CourseExercise.is_deleted.is_(False),
+                )
+            )
+            & (models.Submission.student_id == models.CourseStudent.student_id),
+        )
+        .filter(
+            models.CourseStudent.course_id == course.id,
+            models.CourseStudent.is_active.is_(True),
+            models.CourseStudent.deleted_at.is_(None),
+        )
+        .group_by(models.CourseStudent.id, models.User.id, models.User.full_name)
+        .all()
+    )
+
+    results: list[schemas.StudentProgressOut] = []
+    for r in rows:
+        results.append(
+            schemas.StudentProgressOut(
+                course_student_id=r.course_student_id,
+                student_id=r.student_id,
+                student_name=r.student_name,
+                completed_exercises=int(r.completed_exercises or 0),
+                total_exercises=int(total_exercises or 0),
+                last_submission_at=r.last_submission_at,
+            )
+        )
+
+    return results
+
+
+# ==== 4) ELIMINAR (LÓGICAMENTE) A UN ESTUDIANTE DEL CURSO ====
+
+@router.delete(
+    "/{course_id}/students/{course_student_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def remove_student_from_course(
+    course_id: int,
+    course_student_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    course = get_course_owned_or_404(db, course_id, current_user)
+
+    cs = db.query(models.CourseStudent).filter(
+        models.CourseStudent.id == course_student_id,
+        models.CourseStudent.course_id == course.id,
+        models.CourseStudent.deleted_at.is_(None),
+    ).first()
+
+    if not cs:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Alumno no encontrado en este curso",
+        )
+
+    cs.is_active = False
+    cs.deleted_at = datetime.now(timezone.utc)
+    db.commit()
+    return

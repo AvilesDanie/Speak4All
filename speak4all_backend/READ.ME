@@ -1,0 +1,24 @@
+# SPEAK4ALL – Backend
+
+Backend en **FastAPI + PostgreSQL** para una aplicación de terapias de habla para niños con síndrome de Down.
+
+Incluye:
+
+- Registro / login simplificado con Google (por ahora: `google_sub`, `email`, `full_name`, `role`).
+- Roles: **THERAPIST** y **STUDENT**.
+- Gestión de cursos y solicitudes de ingreso por código.
+- Creación de ejercicios con IA (OpenAI) + generación de audio (TTS).
+- Publicación de ejercicios en cursos con fecha límite.
+- Entregas de estudiantes (marcar como realizado + subida de audio).
+- Observaciones del terapeuta por entrega.
+- Borrado lógico en todas las entidades clave.
+
+
+
+# Comandos desde la raiz del back (speak4all_backend)
+
+alembic upgrade head
+
+uvicorn app.main:app --reload
+
+

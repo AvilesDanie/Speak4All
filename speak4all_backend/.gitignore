@@ -1,0 +1,68 @@
+# =============================
+# Python
+# =============================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.env/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Byte-compiled / optimized / DLL files
+*.so
+*.dll
+*.dylib
+*.pyd
+*.pyc
+
+# =============================
+# Editor / IDE
+# =============================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# =============================
+# Alembic migrations cache
+# =============================
+alembic/versions/__pycache__/
+alembic/versions/*.pyc
+
+# =============================
+# Logs / temp
+# =============================
+*.log
+*.tmp
+*.bak
+*.old
+*.sqlite
+*.db
+
+# =============================
+# OS / Misc
+# =============================
+.DS_Store
+Thumbs.db
+
+# =============================
+# Media / generated audio
+# =============================
+tts_build_*/
+*.mp3
+*.wav
+
+# =============================
+# Environment
+# =============================
+.env
+.env.*
+*.env
+
+
