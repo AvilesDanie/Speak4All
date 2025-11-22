@@ -241,3 +241,35 @@ class StudentExerciseStatus(BaseModel):
     submitted_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+
+
+# ---- SUBMISSIONS: vistas para terapeuta ----
+
+class SubmissionListItem(BaseModel):
+    """
+    Una fila del listado por ejercicio para el terapeuta.
+    Si submission_id es None -> el estudiante NO ha entregado.
+    """
+    student_id: int
+    full_name: str
+    email: str
+
+    submission_id: Optional[int] = None
+    status: Optional[SubmissionStatus] = None  # None = no entregó
+    has_audio: bool = False
+    audio_path: Optional[str] = None
+    submitted_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SubmissionDetailOut(BaseModel):
+    """
+    Detalle de una entrega concreta (para un estudiante + ejercicio).
+    """
+    submission: SubmissionOut
+    student: UserOut
+
+    model_config = ConfigDict(from_attributes=True)

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -52,3 +52,17 @@ def check_user(payload: dict, db: Session = Depends(get_db)):
     ).first()
 
     return {"exists": bool(user)}
+
+
+@router.get("/me", response_model=schemas.UserOut)
+def get_user_by_google_sub(google_sub: str, db: Session = Depends(get_db)):
+    """Devuelve el usuario dado el `google_sub`. Útil para que el frontend confirme rol y datos."""
+    user = db.query(models.User).filter(
+        models.User.google_sub == google_sub,
+        models.User.deleted_at.is_(None),
+    ).first()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return user

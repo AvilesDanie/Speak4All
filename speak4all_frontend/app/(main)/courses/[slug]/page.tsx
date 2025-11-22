@@ -9,6 +9,10 @@ import { ProgressBar } from 'primereact/progressbar';
 import { Dialog } from 'primereact/dialog';
 
 import PublishExerciseDialog from './PublishExerciseDialog';
+import AudioPlayer from '../../exercises/AudioPlayer';
+
+const API_BASE = 'http://localhost:8000';
+const AUDIO_BASE_URL = 'http://localhost:8000';
 
 type Role = 'THERAPIST' | 'STUDENT';
 
@@ -80,6 +84,45 @@ interface StudentExerciseStatus {
 
 type StudentExerciseFilter = 'ALL' | 'PENDING' | 'DONE' | 'LATE';
 
+// --- Tipos del backend para listados de entregas del terapeuta ---
+interface SubmissionListItem {
+    student_id: number;
+    full_name: string;
+    email: string;
+    submission_id?: number | null;
+    status?: SubmissionStatus | null;
+    has_audio?: boolean;
+    audio_path?: string | null;
+    submitted_at?: string | null;
+}
+
+interface SubmissionOut {
+    id: number;
+    student_id: number;
+    course_exercise_id: number;
+    status: SubmissionStatus;
+    audio_path?: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+interface SubmissionDetailOut {
+    submission: SubmissionOut;
+    student: {
+        id: number;
+        full_name: string;
+        email: string;
+        role: Role;
+        created_at: string;
+    };
+}
+
+// Codificamos "courseId:courseExerciseId" en base64 para no mostrar ids crudos
+const encodeCourseExerciseSlug = (courseId: number, courseExerciseId: number) => {
+    if (typeof window === 'undefined') return '';
+    return window.btoa(`${courseId}:${courseExerciseId}`);
+};
+
 const CoursePage: React.FC = () => {
     const params = useParams();
     const router = useRouter();
@@ -93,6 +136,24 @@ const CoursePage: React.FC = () => {
     const [loadingCourse, setLoadingCourse] = useState(true);
 
     const [activeTabIndex, setActiveTabIndex] = useState(0);
+
+    // ------ estado modales detalle ejercicio / entrega ------
+    const [exerciseDetailVisible, setExerciseDetailVisible] = useState(false);
+    const [selectedExercise, setSelectedExercise] = useState<CourseExercise | null>(null);
+
+    const [submissionDetailVisible, setSubmissionDetailVisible] = useState(false);
+    const [selectedSubmission, setSelectedSubmission] = useState<{
+        course_exercise_id: number;
+        student_id: number;
+    } | null>(null);
+
+    const [exerciseStudents, setExerciseStudents] = useState<SubmissionListItem[]>([]);
+    const [loadingExerciseStudents, setLoadingExerciseStudents] = useState(false);
+    const [exerciseDetailError, setExerciseDetailError] = useState<string | null>(null);
+
+    const [submissionDetail, setSubmissionDetail] = useState<SubmissionDetailOut | null>(null);
+    const [loadingSubmissionDetail, setLoadingSubmissionDetail] = useState(false);
+    const [submissionDetailError, setSubmissionDetailError] = useState<string | null>(null);
 
     // Datos terapeuta
     const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
@@ -115,6 +176,7 @@ const CoursePage: React.FC = () => {
     const [copiedCode, setCopiedCode] = useState(false);
     const [publishVisible, setPublishVisible] = useState(false);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
+    const [showExerciseText, setShowExerciseText] = useState(true);
 
     const showError = (msg: string) => setErrorMsg(msg);
 
@@ -146,7 +208,7 @@ const CoursePage: React.FC = () => {
         async (authToken: string) => {
             try {
                 setLoadingCourse(true);
-                const res = await fetch('http://localhost:8000/courses/my', {
+                const res = await fetch(`${API_BASE}/courses/my`, {
                     headers: { Authorization: `Bearer ${authToken}` },
                 });
 
@@ -212,10 +274,8 @@ const CoursePage: React.FC = () => {
             try {
                 setLoadingExercises(true);
                 const res = await fetch(
-                    `http://localhost:8000/course-exercises/${courseId}`,
-                    {
-                        headers: { Authorization: `Bearer ${token}` },
-                    }
+                    `${API_BASE}/course-exercises/${courseId}`,
+                    { headers: { Authorization: `Bearer ${token}` } }
                 );
                 if (!res.ok) {
                     console.error('Error obteniendo ejercicios:', await res.text());
@@ -235,10 +295,8 @@ const CoursePage: React.FC = () => {
                 try {
                     setLoadingRequests(true);
                     const res = await fetch(
-                        `http://localhost:8000/courses/${courseId}/requests`,
-                        {
-                            headers: { Authorization: `Bearer ${token}` },
-                        }
+                        `${API_BASE}/courses/${courseId}/requests`,
+                        { headers: { Authorization: `Bearer ${token}` } }
                     );
                     if (!res.ok) {
                         console.error('Error obteniendo solicitudes:', await res.text());
@@ -257,10 +315,8 @@ const CoursePage: React.FC = () => {
                 try {
                     setLoadingStudents(true);
                     const res = await fetch(
-                        `http://localhost:8000/courses/${courseId}/students`,
-                        {
-                            headers: { Authorization: `Bearer ${token}` },
-                        }
+                        `${API_BASE}/courses/${courseId}/students`,
+                        { headers: { Authorization: `Bearer ${token}` } }
                     );
                     if (!res.ok) {
                         console.error('Error obteniendo estudiantes:', await res.text());
@@ -279,10 +335,8 @@ const CoursePage: React.FC = () => {
                 try {
                     setLoadingProgress(true);
                     const res = await fetch(
-                        `http://localhost:8000/course-students/${courseId}/students/progress`,
-                        {
-                            headers: { Authorization: `Bearer ${token}` },
-                        }
+                        `${API_BASE}/course-students/${courseId}/students/progress`,
+                        { headers: { Authorization: `Bearer ${token}` } }
                     );
                     if (!res.ok) {
                         console.error('Error obteniendo progreso:', await res.text());
@@ -306,10 +360,8 @@ const CoursePage: React.FC = () => {
                 try {
                     setLoadingStudentExercises(true);
                     const res = await fetch(
-                        `http://localhost:8000/course-students/${courseId}/me/exercises`,
-                        {
-                            headers: { Authorization: `Bearer ${token}` },
-                        }
+                        `${API_BASE}/course-students/${courseId}/me/exercises`,
+                        { headers: { Authorization: `Bearer ${token}` } }
                     );
                     if (!res.ok) {
                         console.error(
@@ -335,6 +387,79 @@ const CoursePage: React.FC = () => {
         }
     }, [course, token, role, studentId]);
 
+    // ------ cargar listado de estudiantes para el ejercicio seleccionado ------
+    useEffect(() => {
+        if (!exerciseDetailVisible || !selectedExercise || !token || role !== 'THERAPIST')
+            return;
+
+        const loadStudents = async () => {
+            try {
+                setExerciseDetailError(null);
+                setLoadingExerciseStudents(true);
+                const res = await fetch(
+                    `${API_BASE}/submissions/course-exercises/${selectedExercise.id}/students`,
+                    { headers: { Authorization: `Bearer ${token}` } }
+                );
+                if (!res.ok) {
+                    const text = await res.text();
+                    console.error('Error obteniendo entregas por ejercicio:', text);
+                    setExerciseDetailError(
+                        text || 'No se pudieron cargar las entregas de este ejercicio.'
+                    );
+                    return;
+                }
+                const data: SubmissionListItem[] = await res.json();
+                setExerciseStudents(data);
+            } catch (err) {
+                console.error('Error de red al obtener entregas:', err);
+                setExerciseDetailError('Error de red al cargar las entregas.');
+            } finally {
+                setLoadingExerciseStudents(false);
+            }
+        };
+
+        loadStudents();
+    }, [exerciseDetailVisible, selectedExercise, token, role]);
+
+    // ------ cargar detalle de entrega de un estudiante ------
+    useEffect(() => {
+        if (
+            !submissionDetailVisible ||
+            !selectedSubmission ||
+            !token ||
+            role !== 'THERAPIST'
+        )
+            return;
+
+        const loadDetail = async () => {
+            try {
+                setSubmissionDetailError(null);
+                setLoadingSubmissionDetail(true);
+                const res = await fetch(
+                    `${API_BASE}/submissions/course-exercises/${selectedSubmission.course_exercise_id}/students/${selectedSubmission.student_id}`,
+                    { headers: { Authorization: `Bearer ${token}` } }
+                );
+                if (!res.ok) {
+                    const text = await res.text();
+                    console.error('Error obteniendo detalle de entrega:', text);
+                    setSubmissionDetailError(
+                        text || 'No se pudo cargar el detalle de la entrega.'
+                    );
+                    return;
+                }
+                const data: SubmissionDetailOut = await res.json();
+                setSubmissionDetail(data);
+            } catch (err) {
+                console.error('Error de red al obtener detalle de entrega:', err);
+                setSubmissionDetailError('Error de red al cargar la entrega.');
+            } finally {
+                setLoadingSubmissionDetail(false);
+            }
+        };
+
+        loadDetail();
+    }, [submissionDetailVisible, selectedSubmission, token, role]);
+
     // ─────────────────────────────
     // Acciones terapeuta
     // ─────────────────────────────
@@ -343,7 +468,7 @@ const CoursePage: React.FC = () => {
 
         try {
             const res = await fetch(
-                `http://localhost:8000/courses/${course.id}/requests/${requestId}/decision`,
+                `${API_BASE}/courses/${course.id}/requests/${requestId}/decision`,
                 {
                     method: 'POST',
                     headers: {
@@ -374,7 +499,7 @@ const CoursePage: React.FC = () => {
 
         try {
             const res = await fetch(
-                `http://localhost:8000/courses/${course.id}/students/${courseStudentId}`,
+                `${API_BASE}/courses/${course.id}/students/${courseStudentId}`,
                 {
                     method: 'DELETE',
                     headers: { Authorization: `Bearer ${token}` },
@@ -495,8 +620,8 @@ const CoursePage: React.FC = () => {
                                             percent >= 70
                                                 ? 'success'
                                                 : percent >= 40
-                                                ? 'warning'
-                                                : 'danger'
+                                                    ? 'warning'
+                                                    : 'danger'
                                         }
                                     />
                                 </div>
@@ -507,8 +632,8 @@ const CoursePage: React.FC = () => {
                                     Última entrega:{' '}
                                     {s.last_submission_at
                                         ? new Date(
-                                              s.last_submission_at
-                                          ).toLocaleString()
+                                            s.last_submission_at
+                                        ).toLocaleString()
                                         : 'Sin entregas aún'}
                                 </p>
 
@@ -560,7 +685,7 @@ const CoursePage: React.FC = () => {
                     <div className="grid">
                         {exercises.map((ce) => (
                             <div key={ce.id} className="col-12 md:col-6">
-                                <div className="card flex flex-column gap-2">
+                                <div className="card flex flex-column gap-2 h-full">
                                     <div className="flex justify-content-between align-items-start">
                                         <div>
                                             <h4 className="m-0 text-base font-semibold">
@@ -588,10 +713,22 @@ const CoursePage: React.FC = () => {
                                         <p className="m-0 text-sm text-700 line-height-3">
                                             {ce.exercise.text.length > 140
                                                 ? ce.exercise.text.slice(0, 140) +
-                                                  '…'
+                                                '…'
                                                 : ce.exercise.text}
                                         </p>
                                     )}
+
+                                    <div className="flex justify-content-end mt-2">
+                                        <Button
+                                            label="Ver detalles / entregas"
+                                            icon="pi pi-arrow-right"
+                                            className="p-button-text"
+                                            onClick={() => {
+                                                setSelectedExercise(ce);
+                                                setExerciseDetailVisible(true);
+                                            }}
+                                        />
+                                    </div>
                                 </div>
                             </div>
                         ))}
@@ -635,15 +772,15 @@ const CoursePage: React.FC = () => {
                                 percent >= 70
                                     ? 'success'
                                     : percent >= 40
-                                    ? 'warning'
-                                    : 'danger';
+                                        ? 'warning'
+                                        : 'danger';
 
                             const severityColor =
                                 severity === 'success'
                                     ? '#16a34a'
                                     : severity === 'warning'
-                                    ? '#f59e0b'
-                                    : '#ef4444';
+                                        ? '#f59e0b'
+                                        : '#ef4444';
 
                             return (
                                 <tr key={p.student_id} className="text-sm">
@@ -681,8 +818,8 @@ const CoursePage: React.FC = () => {
                                     <td className="p-3 text-700">
                                         {p.last_submission_at
                                             ? new Date(
-                                                  p.last_submission_at
-                                              ).toLocaleString()
+                                                p.last_submission_at
+                                            ).toLocaleString()
                                             : 'Sin entregas'}
                                     </td>
                                 </tr>
@@ -817,7 +954,7 @@ const CoursePage: React.FC = () => {
                                             <p className="m-0 text-sm text-700 line-height-3">
                                                 {textPreview.length > 140
                                                     ? textPreview.slice(0, 140) +
-                                                      '…'
+                                                    '…'
                                                     : textPreview}
                                             </p>
                                         )}
@@ -827,11 +964,17 @@ const CoursePage: React.FC = () => {
                                                 label="Ver detalle / entregar"
                                                 icon="pi pi-arrow-right"
                                                 className="p-button-text"
-                                                onClick={() =>
+                                                onClick={() => {
+                                                    if (!course) return;
+                                                    const exerciseSlug =
+                                                        encodeCourseExerciseSlug(
+                                                            course.id,
+                                                            ex.course_exercise_id
+                                                        );
                                                     router.push(
-                                                        `/course-exercises/${ex.course_exercise_id}`
-                                                    )
-                                                }
+                                                        `/courses/${params.slug}/${exerciseSlug}`
+                                                    );
+                                                }}
                                             />
                                         </div>
                                     </div>
@@ -870,6 +1013,15 @@ const CoursePage: React.FC = () => {
             </div>
         );
     }
+
+    // helper para audio de submission
+    const getSubmissionAudioSrc = (sub?: SubmissionOut | null) => {
+        if (!sub?.audio_path) return null;
+        const normalized = sub.audio_path.replace(/\\/g, '/');
+        return sub.audio_path.startsWith('http')
+            ? sub.audio_path
+            : `${AUDIO_BASE_URL}/media/${normalized}`;
+    };
 
     return (
         <div className="surface-ground" style={{ minHeight: '60vh' }}>
@@ -947,7 +1099,9 @@ const CoursePage: React.FC = () => {
                 )}
 
                 {/* Estudiante */}
-                {role === 'STUDENT' && activeTabIndex === 0 && renderStudentExercisesTab()}
+                {role === 'STUDENT' &&
+                    activeTabIndex === 0 &&
+                    renderStudentExercisesTab()}
             </div>
 
             {/* Modal publicar ejercicio (solo terapeuta) */}
@@ -958,13 +1112,277 @@ const CoursePage: React.FC = () => {
                     token={token}
                     courseId={course.id}
                     onPublished={() => {
-                        // Recargar ejercicios publicados al cerrar
                         window.location.reload();
                     }}
                 />
             )}
 
-            {/* Modal error */}
+            {/* Modal detalle de ejercicio (terapeuta) */}
+            {role === 'THERAPIST' && (
+    <Dialog
+        header={
+            selectedExercise?.exercise?.name || 'Detalle de ejercicio'
+        }
+        visible={exerciseDetailVisible}
+        modal
+        style={{ width: '80vw', maxWidth: '1100px' }}
+        onHide={() => {
+            setExerciseDetailVisible(false);
+            setSelectedExercise(null);
+            setExerciseStudents([]);
+            setExerciseDetailError(null);
+            setShowExerciseText(true); // volvemos a mostrar el texto al cerrar
+        }}
+    >
+        {!selectedExercise ? (
+            <p>Selecciona un ejercicio para ver los detalles.</p>
+        ) : (
+            <div className="flex flex-column gap-3">
+                {/* Fila superior solo con metadatos (derecha) */}
+                <div className="flex justify-content-between align-items-start gap-3">
+                    <div className="flex justify-content-between align-items-center gap-2">
+                            
+                            <Button
+                                label={
+                                    showExerciseText
+                                        ? 'Ocultar texto del ejercicio'
+                                        : 'Mostrar texto del ejercicio'
+                                }
+                                icon={
+                                    showExerciseText
+                                        ? 'pi pi-chevron-up'
+                                        : 'pi pi-chevron-down'
+                                }
+                                className="p-button-text p-button-sm"
+                                onClick={() =>
+                                    setShowExerciseText((prev) => !prev)
+                                }
+                            />
+                        </div>
+                    <div /> {/* espacio a la izquierda, el título ya va en el header */}
+                    <div className="flex flex-column gap-1 text-sm text-700 text-right">
+                        <span>
+                            Publicado:{' '}
+                            {new Date(
+                                selectedExercise.published_at
+                            ).toLocaleString()}
+                        </span>
+                        {selectedExercise.due_date && (
+                            <span>
+                                Fecha límite:{' '}
+                                {new Date(
+                                    selectedExercise.due_date
+                                ).toLocaleString()}
+                            </span>
+                        )}
+                    </div>
+                </div>
+
+                {/* Encabezado + botón mostrar/ocultar */}
+                {selectedExercise.exercise?.text && (
+                    <>
+                        
+
+                        {/* TEXTO DEL EJERCICIO: ocupa todo el ancho, con scroll vertical si es muy largo */}
+                        {showExerciseText && (
+                            <div
+                                className="text-sm text-700 line-height-3 p-3 border-round"
+                                style={{
+                                    whiteSpace: 'pre-line',
+                                    maxHeight: '260px',
+                                    overflowY: 'auto',
+                                    background: '#f9fafb',
+                                    border: '1px solid #e5e7eb',
+                                    width: '100%',
+                                }}
+                            >
+                                {selectedExercise.exercise.text}
+                            </div>
+                        )}
+                    </>
+                )}
+
+                <h3 className="mt-3 mb-2 text-lg font-semibold">
+                    Entregas de estudiantes
+                </h3>
+
+                {exerciseDetailError && (
+                    <p className="p-error text-sm">
+                        {exerciseDetailError}
+                    </p>
+                )}
+
+                {loadingExerciseStudents ? (
+                    <p>Cargando entregas...</p>
+                ) : !exerciseStudents.length ? (
+                    <p className="text-600">
+                        Aún no hay estudiantes en este curso o no hay
+                        datos de entregas.
+                    </p>
+                ) : (
+                    <div className="card p-0 overflow-auto">
+                        <table className="w-full">
+                            <thead>
+                                <tr className="text-left text-sm text-600">
+                                    <th className="p-3">Estudiante</th>
+                                    <th className="p-3">Email</th>
+                                    <th className="p-3">Estado</th>
+                                    <th className="p-3">Audio</th>
+                                    <th className="p-3">Entregado</th>
+                                    <th className="p-3 text-right">
+                                        Acción
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {exerciseStudents.map((s) => {
+                                    const st = s.status ?? 'PENDING';
+                                    const tag = statusTag(st, undefined);
+                                    const submitted =
+                                        s.submitted_at &&
+                                        new Date(
+                                            s.submitted_at
+                                        ).toLocaleString();
+
+                                    return (
+                                        <tr
+                                            key={s.student_id}
+                                            className="text-sm"
+                                        >
+                                            <td className="p-3 font-medium text-800">
+                                                {s.full_name}
+                                            </td>
+                                            <td className="p-3 text-700">
+                                                {s.email}
+                                            </td>
+                                            <td className="p-3">
+                                                {tag}
+                                            </td>
+                                            <td className="p-3 text-700">
+                                                {s.has_audio ? 'Sí' : 'No'}
+                                            </td>
+                                            <td className="p-3 text-700">
+                                                {submitted || 'Sin entrega'}
+                                            </td>
+                                            <td className="p-3 text-right">
+                                                <Button
+                                                    label="Ver entrega"
+                                                    icon="pi pi-eye"
+                                                    className="p-button-text"
+                                                    disabled={!s.submission_id}
+                                                    onClick={() => {
+                                                        if (!selectedExercise)
+                                                            return;
+                                                        setSelectedSubmission({
+                                                            course_exercise_id:
+                                                                selectedExercise.id,
+                                                            student_id:
+                                                                s.student_id,
+                                                        });
+                                                        setSubmissionDetailVisible(
+                                                            true
+                                                        );
+                                                    }}
+                                                />
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </div>
+        )}
+    </Dialog>
+)}
+
+
+
+            {/* Modal detalle de entrega de un estudiante */}
+            {role === 'THERAPIST' && (
+                <Dialog
+                    header="Detalle de entrega"
+                    visible={submissionDetailVisible}
+                    modal
+                    style={{ width: '80vw', maxWidth: '900px' }}
+                    onHide={() => {
+                        setSubmissionDetailVisible(false);
+                        setSelectedSubmission(null);
+                        setSubmissionDetail(null);
+                        setSubmissionDetailError(null);
+                    }}
+                >
+                    {submissionDetailError && (
+                        <p className="p-error text-sm mb-3">
+                            {submissionDetailError}
+                        </p>
+                    )}
+
+                    {loadingSubmissionDetail ? (
+                        <p>Cargando detalle de la entrega...</p>
+                    ) : !submissionDetail ? (
+                        <p>No hay datos de entrega para este estudiante.</p>
+                    ) : (
+                        <div className="flex flex-column gap-3">
+                            <div className="flex justify-content-between flex-wrap gap-3">
+                                <div>
+                                    <h2 className="m-0 text-xl font-semibold">
+                                        {submissionDetail.student.full_name}
+                                    </h2>
+                                    <p className="m-0 text-600 text-sm">
+                                        {submissionDetail.student.email}
+                                    </p>
+                                </div>
+                                <div className="flex flex-column items-end gap-1 text-sm text-700">
+                                    <span>
+                                        Estado:{' '}
+                                        {statusTag(
+                                            submissionDetail.submission.status
+                                        )}
+                                    </span>
+                                    <span>
+                                        Creada:{' '}
+                                        {new Date(
+                                            submissionDetail.submission.created_at
+                                        ).toLocaleString()}
+                                    </span>
+                                    <span>
+                                        Última actualización:{' '}
+                                        {new Date(
+                                            submissionDetail.submission.updated_at
+                                        ).toLocaleString()}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div className="card">
+                                <h3 className="text-lg font-semibold mb-2">
+                                    Audio entregado
+                                </h3>
+                                {getSubmissionAudioSrc(
+                                    submissionDetail.submission
+                                ) ? (
+                                    <AudioPlayer
+                                        src={getSubmissionAudioSrc(
+                                            submissionDetail.submission
+                                        )!}
+                                    />
+                                ) : (
+                                    <p className="text-600 text-sm m-0">
+                                        Este estudiante no ha entregado audio para
+                                        este ejercicio.
+                                    </p>
+                                )}
+                            </div>
+
+                            {/* Aquí podrías añadir otro bloque para observaciones */}
+                        </div>
+                    )}
+                </Dialog>
+            )}
+
+            {/* Modal error global */}
             <Dialog
                 header="Error"
                 visible={!!errorMsg}

@@ -62,7 +62,6 @@ tts_build_*/
 # Environment
 # =============================
 .env
-.env.*
 *.env
 
 

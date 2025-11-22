@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from .. import models, schemas
 from ..deps import get_current_user
+from sqlalchemy import and_
 
 router = APIRouter()
 
@@ -28,6 +29,43 @@ def require_student(user: models.User):
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo estudiantes pueden realizar entregas."
         )
+
+def require_therapist(user: models.User):
+    if user.role != models.UserRole.THERAPIST:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo terapeutas pueden acceder a esta información."
+        )
+
+def get_course_exercise_for_therapist(
+    db: Session,
+    course_exercise_id: int,
+    therapist_id: int,
+) -> models.CourseExercise:
+    """
+    Verifica:
+    - que el CourseExercise existe y no está borrado
+    - que pertenece a un curso cuyo therapist_id es el usuario actual
+    """
+    course_ex = (
+        db.query(models.CourseExercise)
+        .join(models.Course, models.Course.id == models.CourseExercise.course_id)
+        .filter(
+            models.CourseExercise.id == course_exercise_id,
+            models.CourseExercise.is_deleted.is_(False),
+            models.Course.therapist_id == therapist_id,
+        )
+        .first()
+    )
+
+    if not course_ex:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Ejercicio no encontrado o no tienes permisos sobre este curso.",
+        )
+
+    return course_ex
+
 
 
 def check_due_date(course_ex: models.CourseExercise):
@@ -272,3 +310,234 @@ def delete_submission_audio(
     db.commit()
     db.refresh(sub)
     return sub
+
+
+
+
+
+@router.get(
+    "/course-exercises/{course_exercise_id}/students",
+    response_model=list[schemas.SubmissionListItem],
+)
+def list_submissions_by_course_exercise_for_therapist(
+    course_exercise_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Lista de TODOS los estudiantes de ese curso (CourseExercise),
+    indicando si:
+    - entregaron con audio
+    - entregaron sin audio
+    - no entregaron
+
+    Solo puede verlo el terapeuta dueño del curso.
+    """
+    require_therapist(current_user)
+
+    # Verifica que el ejercicio pertenece a un curso del terapeuta
+    course_ex = get_course_exercise_for_therapist(
+        db, course_exercise_id, current_user.id
+    )
+
+    # Traemos TODOS los alumnos activos del curso, con outer join a Submission
+    q = (
+        db.query(
+            models.CourseStudent.student_id,
+            models.User.full_name,
+            models.User.email,
+            models.Submission.id.label("submission_id"),
+            models.Submission.status.label("status"),
+            models.Submission.audio_path.label("audio_path"),
+            models.Submission.created_at.label("submitted_at"),
+        )
+        .join(models.User, models.User.id == models.CourseStudent.student_id)
+        .outerjoin(
+            models.Submission,
+            and_(
+                models.Submission.student_id == models.CourseStudent.student_id,
+                models.Submission.course_exercise_id == course_exercise_id,
+            ),
+        )
+        .filter(
+            models.CourseStudent.course_id == course_ex.course_id,
+            models.CourseStudent.is_active.is_(True),
+        )
+        .order_by(models.User.full_name.asc())
+    )
+
+    rows = q.all()
+
+    items: list[schemas.SubmissionListItem] = []
+    for row in rows:
+        has_audio = row.audio_path is not None
+
+        item = schemas.SubmissionListItem(
+            student_id=row.student_id,
+            full_name=row.full_name,
+            email=row.email,
+            submission_id=row.submission_id,
+            status=row.status,  # puede ser None si no hay entrega
+            has_audio=has_audio,
+            audio_path=row.audio_path,
+            submitted_at=row.submitted_at,
+        )
+        items.append(item)
+
+    return items
+
+
+
+@router.get(
+    "/course-exercises/{course_exercise_id}/students/{student_id}",
+    response_model=schemas.SubmissionDetailOut,
+)
+def get_submission_detail_for_student_and_exercise(
+    course_exercise_id: int,
+    student_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Devuelve el detalle de la entrega de UN estudiante concreto
+    para un CourseExercise concreto.
+
+    Solo puede verlo el terapeuta dueño del curso.
+    """
+    require_therapist(current_user)
+
+    # Confirma que el ejercicio pertenece a un curso del terapeuta
+    _ = get_course_exercise_for_therapist(
+        db, course_exercise_id, current_user.id
+    )
+
+    # Buscamos la entrega + datos del estudiante, asegurando
+    # que el curso también pertenece al terapeuta
+    row = (
+        db.query(models.Submission, models.User, models.Course, models.CourseExercise)
+        .join(models.User, models.User.id == models.Submission.student_id)
+        .join(models.CourseExercise, models.CourseExercise.id == models.Submission.course_exercise_id)
+        .join(models.Course, models.Course.id == models.CourseExercise.course_id)
+        .filter(
+            models.Submission.course_exercise_id == course_exercise_id,
+            models.Submission.student_id == student_id,
+            models.Course.therapist_id == current_user.id,
+            models.CourseExercise.is_deleted.is_(False),
+        )
+        .first()
+    )
+
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Entrega no encontrada para este estudiante y ejercicio.",
+        )
+
+    submission, student, _, _ = row
+
+    submission_out = schemas.SubmissionOut.model_validate(submission)
+    student_out = schemas.UserOut.model_validate(student)
+
+    return schemas.SubmissionDetailOut(
+        submission=submission_out,
+        student=student_out,
+    )
+
+
+
+
+
+@router.get(
+    "/courses/{course_id}/students/{student_id}/exercises-status",
+    response_model=list[schemas.StudentExerciseStatus],
+)
+def list_student_exercises_status_in_course(
+    course_id: int,
+    student_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Devuelve el estado de TODAS las entregas de un estudiante
+    para todos los CourseExercises de un curso.
+
+    Solo puede verlo el terapeuta dueño del curso.
+    """
+    # 1) Asegurarnos que es terapeuta
+    require_therapist(current_user)
+
+    # 2) Verificar que el curso pertenece a este terapeuta
+    course = (
+        db.query(models.Course)
+        .filter(
+            models.Course.id == course_id,
+            models.Course.therapist_id == current_user.id,
+            models.Course.is_active.is_(True),
+            models.Course.deleted_at.is_(None),
+        )
+        .first()
+    )
+    if not course:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Curso no encontrado o no tienes permisos sobre este curso.",
+        )
+
+    # 3) Verificar que el estudiante está inscrito en este curso
+    course_student = (
+        db.query(models.CourseStudent)
+        .filter(
+            models.CourseStudent.course_id == course_id,
+            models.CourseStudent.student_id == student_id,
+            models.CourseStudent.is_active.is_(True),
+        )
+        .first()
+    )
+    if not course_student:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="El estudiante no está inscrito en este curso.",
+        )
+
+    # 4) Obtener TODOS los CourseExercises del curso,
+    #    con outer join a Submission para ese estudiante
+    q = (
+        db.query(
+            models.CourseExercise.id.label("course_exercise_id"),
+            models.Exercise.name.label("exercise_name"),
+            models.CourseExercise.due_date.label("due_date"),
+            models.Submission.status.label("submission_status"),
+            models.Submission.created_at.label("submitted_at"),
+        )
+        .join(models.Exercise, models.Exercise.id == models.CourseExercise.exercise_id)
+        .outerjoin(
+            models.Submission,
+            and_(
+                models.Submission.course_exercise_id == models.CourseExercise.id,
+                models.Submission.student_id == student_id,
+            ),
+        )
+        .filter(
+            models.CourseExercise.course_id == course_id,
+            models.CourseExercise.is_deleted.is_(False),
+        )
+        .order_by(models.CourseExercise.published_at.asc())
+    )
+
+    rows = q.all()
+
+    items: list[schemas.StudentExerciseStatus] = []
+    for row in rows:
+        # Si no hay submission, consideramos status = PENDING y submitted_at = None
+        status = row.submission_status or models.SubmissionStatus.PENDING
+
+        item = schemas.StudentExerciseStatus(
+            course_exercise_id=row.course_exercise_id,
+            exercise_name=row.exercise_name,
+            due_date=row.due_date,
+            status=status,
+            submitted_at=row.submitted_at,
+        )
+        items.append(item)
+
+    return items

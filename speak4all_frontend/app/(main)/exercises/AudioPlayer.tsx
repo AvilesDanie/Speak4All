@@ -44,6 +44,8 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src }) => {
         }
     };
 
+
+
     const downloadFile = async () => {
         try {
             const response = await fetch(src, {
@@ -102,6 +104,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src }) => {
             audioRef.current.volume = value / 100;
         }
     };
+
 
     const handleSpeedChange = (value: number) => {
         setPlaybackRate(value);
@@ -176,17 +179,40 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src }) => {
                     />
                 </div>
 
-                {/* Velocidad */}
-                <div className="flex align-items-center gap-2">
-                    <span className="text-xs text-600">Velocidad</span>
-                    <Dropdown
-                        value={playbackRate}
-                        options={speedOptions}
-                        onChange={(e) => handleSpeedChange(e.value)}
-                        className="p-inputtext-sm"
-                        style={{ width: '110px' }}
-                    />
+                {/* Velocidad con slider */}
+                <div
+                    className="flex flex-column gap-2"
+                    style={{ minWidth: '200px', maxWidth: '260px' }}
+                >
+                    <div className="flex flex-column gap-2" style={{ minWidth: '240px' }}>
+                        <div className="flex justify-content-between align-items-center">
+                            <span className="text-xs text-600">Velocidad</span>
+                            <span className="text-xs font-semibold">
+                                {playbackRate.toFixed(2)}x
+                            </span>
+                        </div>
+
+                        <Slider
+                            value={playbackRate}
+                            onChange={(e) => handleSpeedChange(e.value as number)}
+                            min={0.5}
+                            max={2}
+                            step={0.05}
+                        />
+
+                        <Dropdown
+                            value={playbackRate}
+                            options={speedOptions}
+                            onChange={(e) => handleSpeedChange(e.value)}
+                            className="p-inputtext-sm"
+                            style={{ width: '110px' }}
+                        />
+                    </div>
+
                 </div>
+
+
+                
 
                 {/* Opciones */}
                 <div className="flex align-items-center gap-2 ml-auto">

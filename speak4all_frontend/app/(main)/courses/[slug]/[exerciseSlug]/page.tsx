@@ -1,0 +1,541 @@
+'use client';
+
+import React, { useEffect, useRef, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { Button } from 'primereact/button';
+import { Tag } from 'primereact/tag';
+import { ProgressBar } from 'primereact/progressbar';
+import { Dialog } from 'primereact/dialog';
+import { InputTextarea } from 'primereact/inputtextarea';
+import AudioPlayer from '../../../exercises/AudioPlayer';
+
+
+type Role = 'THERAPIST' | 'STUDENT';
+
+interface BackendUser {
+    id: number;
+    full_name: string;
+    email: string;
+    role: Role;
+}
+
+// --- Tipos del backend que necesitamos ---
+type SubmissionStatus = 'PENDING' | 'DONE';
+
+interface ExerciseOut {
+    id: number;
+    name: string;
+    prompt?: string | null;
+    text: string;
+    audio_path: string;
+    created_at: string;
+}
+
+interface CourseExerciseOut {
+    id: number;
+    course_id: number;
+    exercise_id: number;
+    published_at: string;
+    due_date?: string | null;
+    is_deleted: boolean;
+    exercise?: ExerciseOut | null;
+}
+
+interface StudentExerciseStatus {
+    course_exercise_id: number;
+    exercise_name: string;
+    due_date?: string | null;
+    status: SubmissionStatus;
+    submitted_at?: string | null;
+}
+
+interface SubmissionOut {
+    id: number;
+    student_id: number;
+    course_exercise_id: number;
+    status: SubmissionStatus;
+    audio_path?: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+const API_BASE = 'http://localhost:8000';
+const AUDIO_BASE_URL = 'http://localhost:8000';
+
+
+// ──────────────────────────────────────────
+// Página de detalle / entrega
+// ──────────────────────────────────────────
+
+const decodeSlug = (
+    slug: string
+): { courseId: number; courseExerciseId: number } | null => {
+    try {
+        const decoded = atob(slug);
+        const [courseIdStr, courseExerciseIdStr] = decoded.split(':');
+        const courseId = Number(courseIdStr);
+        const courseExerciseId = Number(courseExerciseIdStr);
+        if (Number.isNaN(courseId) || Number.isNaN(courseExerciseId)) return null;
+        return { courseId, courseExerciseId };
+    } catch {
+        return null;
+    }
+};
+
+const CourseExerciseDetailPage: React.FC = () => {
+    const params = useParams() as { slug: string; exerciseSlug: string };
+    const { slug, exerciseSlug } = params;
+
+
+    const router = useRouter();
+
+
+    const [token, setToken] = useState<string | null>(null);
+    const [role, setRole] = useState<Role | null>(null);
+
+    const [courseId, setCourseId] = useState<number | null>(null);
+    const [courseExerciseId, setCourseExerciseId] = useState<number | null>(null);
+
+    const [courseExercise, setCourseExercise] = useState<CourseExerciseOut | null>(
+        null
+    );
+    const [studentStatus, setStudentStatus] =
+        useState<StudentExerciseStatus | null>(null);
+
+    const [loading, setLoading] = useState(true);
+    const [submitting, setSubmitting] = useState(false);
+    const [successMsg, setSuccessMsg] = useState<string | null>(null);
+    const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+    const [file, setFile] = useState<File | null>(null);
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+    // Cargar user + token + ids desde el slug
+    // Cargar user + token + ids desde el exerciseSlug
+useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const decoded = decodeSlug(exerciseSlug);
+    if (!decoded) {
+        setErrorMsg('Enlace de ejercicio no válido.');
+        setLoading(false);
+        return;
+    }
+
+    setCourseId(decoded.courseId);
+    setCourseExerciseId(decoded.courseExerciseId);
+
+    const userRaw = window.localStorage.getItem('backend_user');
+    if (userRaw) {
+        try {
+            const u = JSON.parse(userRaw) as BackendUser;
+            setRole(u.role);
+        } catch {
+            setRole(null);
+        }
+    }
+
+    const t = window.localStorage.getItem('backend_token');
+    setToken(t ?? null);
+}, [exerciseSlug]);
+
+
+    // Cargar datos del ejercicio + estado del alumno
+    useEffect(() => {
+        const loadData = async () => {
+            if (!token || !role || role !== 'STUDENT') {
+                setLoading(false);
+                return;
+            }
+            if (courseId == null || courseExerciseId == null) {
+                setLoading(false);
+                return;
+            }
+
+            try {
+                setLoading(true);
+
+                // 1) Ejercicios del curso
+                const resExercises = await fetch(
+                    `${API_BASE}/course-exercises/${courseId}`,
+                    {
+                        headers: { Authorization: `Bearer ${token}` },
+                    }
+                );
+
+                if (resExercises.ok) {
+                    const list: CourseExerciseOut[] = await resExercises.json();
+                    const found = list.find((ce) => ce.id === courseExerciseId);
+                    if (found) {
+                        setCourseExercise(found);
+                    }
+                } else {
+                    console.error(
+                        'Error obteniendo ejercicio:',
+                        await resExercises.text()
+                    );
+                }
+
+                // 2) Estado de ejercicios del alumno
+                const resStatus = await fetch(
+                    `${API_BASE}/course-students/${courseId}/me/exercises`,
+                    { headers: { Authorization: `Bearer ${token}` } }
+                );
+
+                if (resStatus.ok) {
+                    const statusList: StudentExerciseStatus[] =
+                        await resStatus.json();
+                    const s = statusList.find(
+                        (st) => st.course_exercise_id === courseExerciseId
+                    );
+                    if (s) setStudentStatus(s);
+                } else {
+                    console.error(
+                        'Error obteniendo estado de ejercicios:',
+                        await resStatus.text()
+                    );
+                }
+            } catch (err) {
+                console.error('Error de red:', err);
+                setErrorMsg('Error de red al cargar el ejercicio.');
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        if (token && role && courseId != null && courseExerciseId != null) {
+            loadData();
+        }
+    }, [token, role, courseId, courseExerciseId]);
+
+    const statusTag = () => {
+        if (!studentStatus) return null;
+        const now = new Date();
+        const due = studentStatus.due_date
+            ? new Date(studentStatus.due_date)
+            : null;
+        const isLate =
+            studentStatus.status === 'PENDING' && due && due < now;
+
+        if (studentStatus.status === 'DONE') {
+            return <Tag value="Entregado" severity="success" />;
+        }
+        if (isLate) {
+            return <Tag value="Retrasado" severity="danger" />;
+        }
+        return <Tag value="Pendiente" severity="warning" />;
+    };
+
+    const progressValue =
+        studentStatus?.status === 'DONE' ? 100 : 40; // solo decorativo
+
+    const handleSubmit = async () => {
+        if (!token || courseExerciseId == null) {
+            setErrorMsg('No se pudo enviar la entrega (falta token).');
+            return;
+        }
+
+        setSubmitting(true);
+        setSuccessMsg(null);
+        setErrorMsg(null);
+
+        try {
+            const formData = new FormData();
+            if (file) {
+                formData.append('audio', file);
+            }
+
+            const res = await fetch(
+                `${API_BASE}/submissions/course-exercises/${courseExerciseId}/submit`,
+                {
+                    method: 'POST',
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                    },
+                    body: formData,
+                }
+            );
+
+            if (!res.ok) {
+                const text = await res.text();
+                console.error('Error enviando entrega:', text);
+                setErrorMsg(text || 'No se pudo enviar la entrega.');
+                return;
+            }
+
+            const data: SubmissionOut = await res.json();
+
+            // Actualizamos estado local
+            setStudentStatus((prev) =>
+                prev
+                    ? {
+                          ...prev,
+                          status: data.status,
+                          submitted_at: data.updated_at,
+                      }
+                    : prev
+            );
+
+            setSuccessMsg('Entrega enviada correctamente.');
+        } catch (err) {
+            console.error('Error de red al enviar entrega:', err);
+            setErrorMsg('Error de red al enviar la entrega.');
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    if (loading) {
+        return (
+            <div
+                className="flex justify-content-center align-items-center"
+                style={{ minHeight: '60vh' }}
+            >
+                <div className="text-center">
+                    <i className="pi pi-spin pi-spinner" style={{ fontSize: '2rem' }} />
+                    <p className="mt-3">Cargando ejercicio...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (!token || role !== 'STUDENT' || !courseExercise || !studentStatus) {
+        return (
+            <div className="surface-ground p-3 md:p-4" style={{ minHeight: '60vh' }}>
+                <div className="card p-4 border-round-2xl">
+                    <h2 className="text-xl font-semibold mb-2">
+                        No se pudo cargar el ejercicio
+                    </h2>
+                    <p className="text-600 m-0">
+                        Comprueba que has iniciado sesión como estudiante y vuelve a
+                        abrir el ejercicio desde el curso.
+                    </p>
+                </div>
+            </div>
+        );
+    }
+
+    const exercise = courseExercise.exercise;
+    const text = exercise?.text ?? '';
+    const title = studentStatus.exercise_name;
+    const dueDate = studentStatus.due_date
+        ? new Date(studentStatus.due_date).toLocaleString()
+        : null;
+    const submittedAt = studentStatus.submitted_at
+        ? new Date(studentStatus.submitted_at).toLocaleString()
+        : null;
+
+    let audioSrc: string | null = null;
+    if (exercise?.audio_path) {
+        const normalized = exercise.audio_path.replace(/\\/g, '/');
+        audioSrc = exercise.audio_path.startsWith('http')
+            ? exercise.audio_path
+            : `${AUDIO_BASE_URL}/media/${normalized}`;
+    }
+
+    return (
+        <div className="surface-ground p-3 md:p-4" style={{ minHeight: '60vh' }}>
+            {/* Barra superior: volver + estado */}
+            <div className="flex justify-content-between align-items-center mb-3">
+                <div className="flex align-items-center gap-2">
+                    <Button
+    type="button"
+    icon="pi pi-arrow-left"
+    className="p-button-text p-button-rounded"
+    label="Volver al curso"
+    onClick={() => router.push(`/courses/${slug}`)}
+/>
+
+                </div>
+
+                <div className="flex flex-column align-items-end gap-1">
+                    <span className="text-xs text-600">Estado del ejercicio</span>
+                    <div className="flex align-items-center gap-2">
+                        {statusTag()}
+                    </div>
+                </div>
+            </div>
+
+            {/* Header grande con título */}
+            <div className="card mb-3 border-none" style={{ borderRadius: '1.5rem' }}>
+                <div
+                    className="p-3 md:p-4"
+                    style={{
+                        borderRadius: '1.25rem',
+                        background:
+                            'linear-gradient(135deg,#4f46e5 0%,#8b5cf6 40%,#0ea5e9 100%)',
+                        color: '#f9fafb',
+                    }}
+                >
+                    <div className="flex justify-content-between align-items-start gap-3 flex-wrap">
+                        <div>
+                            <h1 className="m-0 text-2xl md:text-3xl font-semibold">
+                                {title}
+                            </h1>
+                            {/* Prompt como objetivo */}
+                            {/*exercise?.prompt && (
+                                <p className="m-0 mt-2 text-sm md:text-base">
+                                    <span className="font-medium">Objetivo: </span>
+                                    {exercise.prompt}
+                                </p>
+                            )*/}
+                        </div>
+
+                        <div style={{ minWidth: '220px' }}>
+                            <ProgressBar
+                                value={progressValue}
+                                showValue={false}
+                                style={{ height: '0.5rem', borderRadius: '999px' }}
+                            />
+                            <div className="flex justify-content-between text-xs mt-2 text-indigo-100">
+                                <span>
+                                    {studentStatus.status === 'DONE'
+                                        ? 'Ejercicio entregado'
+                                        : 'Ejercicio pendiente'}
+                                </span>
+                                {dueDate && <span>Fecha límite: {dueDate}</span>}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Contenido principal: texto + entrega */}
+            <div className="flex flex-column lg:flex-row gap-3">
+                {/* Columna izquierda: texto + audio */}
+                <div className="flex-1 flex flex-column gap-3">
+                    <div className="card">
+                        <h3 className="text-lg font-semibold mb-2">
+                            Texto del ejercicio
+                        </h3>
+                        <p className="text-600 text-sm mb-3">
+                            Escucha primero el audio del terapeuta (si está disponible) y
+                            luego realiza tu propia grabación leyendo el texto.
+                        </p>
+                        <div
+                            className="surface-50 border-round-lg p-3"
+                            style={{ minHeight: '10rem' }}
+                        >
+                            <InputTextarea
+                                value={text}
+                                readOnly
+                                autoResize={false}
+                                rows={10}
+                                style={{
+                                    width: '100%',
+                                    border: 'none',
+                                    background: 'transparent',
+                                    resize: 'none',
+                                }}
+                            />
+                        </div>
+                    </div>
+
+                    {audioSrc && (
+                        <div className="card">
+                            <h3 className="text-lg font-semibold mb-2">
+                                Audio de referencia
+                            </h3>
+                            <p className="text-600 text-sm mb-3">
+                                Escucha cómo se pronuncia el ejercicio antes de grabarte.
+                            </p>
+                            <AudioPlayer src={audioSrc} />
+                        </div>
+                    )}
+                </div>
+
+                {/* Columna derecha: entrega */}
+                <div
+                    className="card"
+                    style={{ width: '100%', maxWidth: '420px', alignSelf: 'flex-start' }}
+                >
+                    <h3 className="text-lg font-semibold mb-2">Entregar ejercicio</h3>
+                    <p className="text-600 text-sm mb-3">
+                        Sube una grabación leyendo el texto. También puedes marcar el
+                        ejercicio como hecho sin audio (si tu terapeuta lo permite).
+                    </p>
+
+                    <div className="field mb-3">
+    <label className="font-medium text-sm mb-2 block">
+        Archivo de audio
+    </label>
+
+    {/* Caja estilizada */}
+    <div className="surface-50 border-round-lg p-3 flex flex-column gap-2">
+        <div className="flex align-items-center justify-content-between gap-3 flex-wrap">
+            <div className="flex align-items-center gap-2">
+                <i className="pi pi-microphone text-lg" />
+                <div className="flex flex-column">
+                    <span className="text-sm font-medium text-800">
+                        {file ? file.name : 'Ningún archivo seleccionado'}
+                    </span>
+                    <span className="text-xs text-600">
+                        {file
+                            ? `${(file.size / 1024 / 1024).toFixed(1)} MB`
+                            : 'MP3, WAV, M4A · máx. unos minutos'}
+                    </span>
+                </div>
+            </div>
+
+            <Button
+                type="button"
+                icon="pi pi-folder-open"
+                label={file ? 'Cambiar archivo' : 'Seleccionar archivo'}
+                className="p-button-sm"
+                onClick={() => fileInputRef.current?.click()}
+            />
+        </div>
+    </div>
+
+    {/* Input real oculto */}
+    <input
+        ref={fileInputRef}
+        type="file"
+        accept="audio/*"
+        style={{ display: 'none' }}
+        onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+    />
+</div>
+
+
+                    {submittedAt && (
+                        <p className="text-600 text-sm mb-3">
+                            Última entrega:{' '}
+                            <span className="font-medium">{submittedAt}</span>
+                        </p>
+                    )}
+
+                    {errorMsg && (
+                        <p className="p-error text-sm mb-2">{errorMsg}</p>
+                    )}
+                    {successMsg && (
+                        <p className="text-green-600 text-sm mb-2">
+                            {successMsg}
+                        </p>
+                    )}
+
+                    <Button
+                        label="Enviar entrega"
+                        icon="pi pi-upload"
+                        className="w-full mt-2"
+                        onClick={handleSubmit}
+                        loading={submitting}
+                    />
+                </div>
+            </div>
+
+            {/* Modal de error genérico */}
+            <Dialog
+                header="Error"
+                visible={!!errorMsg && !submitting}
+                modal
+                style={{ width: '26rem', maxWidth: '95vw' }}
+                onHide={() => setErrorMsg(null)}
+            >
+                <p>{errorMsg}</p>
+            </Dialog>
+        </div>
+    );
+};
+
+export default CourseExerciseDetailPage;
