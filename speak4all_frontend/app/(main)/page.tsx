@@ -26,13 +26,13 @@ export default function Dashboard() {
                 setStatsLoading(true);
 
                 const [coursesData, exercisesData, submissionsRes] = await Promise.all([
-                    getMyCourses(token).catch(() => []),
-                    role === 'THERAPIST' ? getMyExercises(token).catch(() => []) : Promise.resolve([]),
+                    getMyCourses(token, 1, 1000).catch(() => ({ items: [], total: 0, page: 1, page_size: 1000, total_pages: 0 })),
+                    role === 'THERAPIST' ? getMyExercises(token, 1, 1000).catch(() => ({ items: [], total: 0, page: 1, page_size: 1000, total_pages: 0 })) : Promise.resolve({ items: [], total: 0, page: 1, page_size: 1000, total_pages: 0 }),
                     fetch(`${API_BASE}/submissions/my/count`, { headers: { Authorization: `Bearer ${token}` } }).catch(() => null),
                 ]);
 
-                const courses = coursesData.length;
-                const exercises = exercisesData.length;
+                const courses = coursesData.total;
+                const exercises = exercisesData.total;
                 const submissionsData = submissionsRes && submissionsRes.ok ? await submissionsRes.json() : { count: 0 };
 
                 console.log('Stats loaded:', { courses, exercises, submissions: submissionsData.count });

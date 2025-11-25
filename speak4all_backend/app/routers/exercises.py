@@ -88,19 +88,53 @@ def create_exercise(
 
 # ==== 3) LISTAR EJERCICIOS DEL TERAPEUTA ====
 
-@router.get("/mine", response_model=list[schemas.ExerciseOut])
+@router.get("/mine", response_model=schemas.PaginatedResponse[schemas.ExerciseOut])
 def list_my_exercises(
+    page: int = 1,
+    page_size: int = 10,
+    folder_id: int | None = None,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
     require_therapist(current_user)
 
-    items = db.query(models.Exercise).filter(
+    # Validar parámetros
+    if page < 1:
+        page = 1
+    if page_size < 1:
+        page_size = 10
+    if page_size > 100:
+        page_size = 100
+
+    # Construir query base
+    query = db.query(models.Exercise).filter(
         models.Exercise.therapist_id == current_user.id,
         models.Exercise.is_deleted.is_(False),
-    ).order_by(models.Exercise.created_at.desc()).all()
+    )
 
-    return items
+    # Filtrar por carpeta si se especifica
+    if folder_id is not None:
+        query = query.filter(models.Exercise.folder_id == folder_id)
+
+    query = query.order_by(models.Exercise.created_at.desc())
+
+    # Contar total
+    total = query.count()
+    
+    # Aplicar paginación
+    offset = (page - 1) * page_size
+    items = query.offset(offset).limit(page_size).all()
+    
+    # Calcular total de páginas
+    total_pages = (total + page_size - 1) // page_size
+    
+    return schemas.PaginatedResponse(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages
+    )
 
 
 # ==== 5) ACTUALIZAR CARPETA DE UN EJERCICIO ====

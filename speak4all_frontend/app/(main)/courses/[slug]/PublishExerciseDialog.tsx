@@ -44,8 +44,8 @@ const PublishExerciseDialog: React.FC<PublishExerciseDialogProps> = ({
         const load = async () => {
             try {
                 setLoading(true);
-                const data = await getMyExercises(token);
-                setExercises(data);
+                const data = await getMyExercises(token, 1, 1000);
+                setExercises(data.items);
             } catch (err: any) {
                 console.error('Error obteniendo ejercicios:', err);
                 setError(err?.message || 'No se pudieron obtener los ejercicios.');

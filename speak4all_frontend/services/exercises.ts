@@ -3,6 +3,15 @@
 
 import { API_BASE, fetchJSON } from './apiClient';
 
+// ==== PAGINATION ====
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
 export interface ExerciseOut {
   id: number;
   name: string;
@@ -27,8 +36,17 @@ interface FetchOptions extends RequestInit {
 
 // Reutilizamos fetchJSON desde apiClient
 
-export async function getMyExercises(token: string): Promise<ExerciseOut[]> {
-  return fetchJSON<ExerciseOut[]>('/exercises/mine', { token, method: 'GET' });
+export async function getMyExercises(
+  token: string,
+  page = 1,
+  pageSize = 10,
+  folderId?: number | null
+): Promise<PaginatedResponse<ExerciseOut>> {
+  let url = `/exercises/mine?page=${page}&page_size=${pageSize}`;
+  if (folderId !== null && folderId !== undefined) {
+    url += `&folder_id=${folderId}`;
+  }
+  return fetchJSON<PaginatedResponse<ExerciseOut>>(url, { token, method: 'GET' });
 }
 
 export async function getFolders(token: string): Promise<ExerciseFolder[]> {

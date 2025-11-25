@@ -81,31 +81,56 @@ def request_join_course(
     return req
 
 
-@router.get("/my", response_model=list[schemas.CourseOut])
+@router.get("/my", response_model=schemas.PaginatedResponse[schemas.CourseOut])
 def list_my_courses(
+    page: int = 1,
+    page_size: int = 10,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    # Validar parámetros
+    if page < 1:
+        page = 1
+    if page_size < 1:
+        page_size = 10
+    if page_size > 100:
+        page_size = 100
+
     # Como terapeuta: cursos que creó
     if current_user.role == models.UserRole.THERAPIST:
-        courses = db.query(models.Course).filter(
+        query = db.query(models.Course).filter(
             models.Course.therapist_id == current_user.id,
             models.Course.deleted_at.is_(None),
-        ).all()
-        return courses
-
-    # Como estudiante: cursos donde está en CourseStudent
-    q = (
-        db.query(models.Course)
-        .join(models.CourseStudent, models.CourseStudent.course_id == models.Course.id)
-        .filter(
-            models.CourseStudent.student_id == current_user.id,
-            models.CourseStudent.is_active.is_(True),
-            models.Course.deleted_at.is_(None),
         )
-        .all()
+    else:
+        # Como estudiante: cursos donde está en CourseStudent
+        query = (
+            db.query(models.Course)
+            .join(models.CourseStudent, models.CourseStudent.course_id == models.Course.id)
+            .filter(
+                models.CourseStudent.student_id == current_user.id,
+                models.CourseStudent.is_active.is_(True),
+                models.Course.deleted_at.is_(None),
+            )
+        )
+
+    # Contar total
+    total = query.count()
+    
+    # Aplicar paginación
+    offset = (page - 1) * page_size
+    courses = query.offset(offset).limit(page_size).all()
+    
+    # Calcular total de páginas
+    total_pages = (total + page_size - 1) // page_size
+    
+    return schemas.PaginatedResponse(
+        items=courses,
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages
     )
-    return q
 
 
 

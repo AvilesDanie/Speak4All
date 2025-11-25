@@ -7,6 +7,8 @@ import { Tag } from 'primereact/tag';
 import { Card } from 'primereact/card';
 import { Dialog } from 'primereact/dialog';
 import { ColorPicker } from 'primereact/colorpicker';
+import { Paginator, PaginatorPageChangeEvent } from 'primereact/paginator';
+import { Dropdown } from 'primereact/dropdown';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import AudioPlayer from './AudioPlayer';
@@ -45,6 +47,12 @@ const ExerciseListPage: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
 
+    // Paginación
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(10);
+    const [totalExercises, setTotalExercises] = useState(0);
+    const [totalPages, setTotalPages] = useState(0);
+
     const [detailVisible, setDetailVisible] = useState(false);
     const [detailExercise, setDetailExercise] = useState<ExerciseOut | null>(null);
     const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
@@ -76,24 +84,25 @@ const ExerciseListPage: React.FC = () => {
     // Ya no es necesario, el hook useAuth lo hace
 
     // cargar ejercicios
-    const loadExercises = useCallback(async (authToken: string) => {
+    const loadExercises = useCallback(async (authToken: string, currentPage: number, currentPageSize: number, currentFolderId?: number | 'ALL') => {
         try {
             setLoading(true);
-            const data = await getMyExercises(authToken);
-            setExercises(data);
-            setFilteredExercises(
-                folderFilter === 'ALL'
-                    ? data
-                    : data.filter((ex) => ex.folder_id === folderFilter)
-            );
+            const folderId = currentFolderId === 'ALL' || currentFolderId === undefined ? undefined : currentFolderId;
+            const data = await getMyExercises(authToken, currentPage, currentPageSize, folderId);
+            setExercises(data.items);
+            setTotalExercises(data.total);
+            setTotalPages(data.total_pages);
+            setFilteredExercises(data.items);
         } catch (err) {
             console.error('Error obteniendo ejercicios:', err);
             setExercises([]);
             setFilteredExercises([]);
+            setTotalExercises(0);
+            setTotalPages(0);
         } finally {
             setLoading(false);
         }
-    }, [folderFilter]);
+    }, []);
 
     const loadFolders = useCallback(async (authToken: string) => {
         try {
@@ -111,9 +120,9 @@ const ExerciseListPage: React.FC = () => {
             setLoading(false);
             return;
         }
-        loadExercises(token);
+        loadExercises(token, page, pageSize, folderFilter);
         loadFolders(token);
-    }, [authLoading, token, role, loadExercises]);
+    }, [authLoading, token, role, page, pageSize, folderFilter, loadExercises, loadFolders]);
 
     // filtro de búsqueda
     useEffect(() => {
@@ -147,7 +156,7 @@ const ExerciseListPage: React.FC = () => {
         setDeleting(true);
         try {
             await apiDeleteExercise(exerciseToDelete.id, token);
-            await loadExercises(token);
+            await loadExercises(token, page, pageSize, folderFilter);
             setDeleteConfirmVisible(false);
             setExerciseToDelete(null);
         } catch (err) {
@@ -156,6 +165,11 @@ const ExerciseListPage: React.FC = () => {
         } finally {
             setDeleting(false);
         }
+    };
+
+    const handlePageChange = (event: PaginatorPageChangeEvent) => {
+        setPage(event.page + 1); // Paginator usa base 0, backend usa base 1
+        setPageSize(event.rows);
     };
 
     const handleAssignFolder = async (exercise: ExerciseOut, folderId: number | null) => {
@@ -194,7 +208,7 @@ const ExerciseListPage: React.FC = () => {
         try {
             await apiDeleteFolder(folderToDelete.id, token);
             await loadFolders(token);
-            await loadExercises(token);
+            await loadExercises(token, page, pageSize, folderFilter);
             setDeleteFolderVisible(false);
             setFolderToDelete(null);
             if (folderFilter === folderToDelete.id) setFolderFilter('ALL');
@@ -289,9 +303,9 @@ const ExerciseListPage: React.FC = () => {
                 <div>
                     <h2 className="text-2xl font-bold mb-1">Mis ejercicios</h2>
                     <p className="text-600 m-0">
-                        {exercises.length} ejercicio
-                        {exercises.length !== 1 ? 's' : ''} guardado
-                        {exercises.length !== 1 ? 's' : ''}
+                        {totalExercises} ejercicio
+                        {totalExercises !== 1 ? 's' : ''} guardado
+                        {totalExercises !== 1 ? 's' : ''}
                     </p>
                 </div>
 
@@ -306,13 +320,44 @@ const ExerciseListPage: React.FC = () => {
                         />
                     </span>
 
+                    <Dropdown 
+                        value={pageSize} 
+                        options={[5, 10, 20, 50].map(v => ({ label: `${v} por página`, value: v }))} 
+                        onChange={(e) => {
+                            setPageSize(e.value);
+                            setPage(1);
+                        }} 
+                        placeholder="Items por página"
+                    />
+                </div>
+            </div>
+
+            {/* Paginador superior */}
+            {totalExercises > 0 && (
+                <div className="mb-3">
+                    <Paginator
+                        first={(page - 1) * pageSize}
+                        rows={pageSize}
+                        totalRecords={totalExercises}
+                        onPageChange={handlePageChange}
+                        template="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink"
+                    />
+                </div>
+            )}
+
+            <div className="flex justify-content-between align-items-center mb-3">
+                <div></div>
+                <div className="flex align-items-center gap-2">
                     {/* Filtro de carpeta */}
                     {folders.length > 0 && (
                         <div className="flex gap-2 flex-wrap">
                             <Button
                                 label="Todos"
                                 className={folderFilter === 'ALL' ? 'p-button-sm' : 'p-button-text p-button-sm'}
-                                onClick={() => setFolderFilter('ALL')}
+                                onClick={() => {
+                                    setFolderFilter('ALL');
+                                    setPage(1);
+                                }}
                             />
                             {folders.map((f) => (
                                 <Button
@@ -324,7 +369,10 @@ const ExerciseListPage: React.FC = () => {
                                         color: folderFilter === f.id ? getContrastColor(f.color) : '#6b7280',
                                         border: `1px solid ${f.color || '#6366f1'}`,
                                     }}
-                                    onClick={() => setFolderFilter(f.id)}
+                                    onClick={() => {
+                                        setFolderFilter(f.id);
+                                        setPage(1);
+                                    }}
                                 />
                             ))}
                         </div>

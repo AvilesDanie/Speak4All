@@ -1,7 +1,26 @@
 from datetime import datetime
-from typing import Optional
-from pydantic import BaseModel, ConfigDict
+from typing import Optional, Generic, TypeVar
+from pydantic import BaseModel, ConfigDict, Field
 from .models import UserRole, JoinRequestStatus, SubmissionStatus  
+
+
+# ==== PAGINATION ====
+
+T = TypeVar('T')
+
+class PaginationParams(BaseModel):
+    """Parámetros de paginación"""
+    page: int = Field(1, ge=1, description="Número de página (inicia en 1)")
+    page_size: int = Field(10, ge=1, le=100, description="Elementos por página (máx 100)")
+
+
+class PaginatedResponse(BaseModel, Generic[T]):
+    """Respuesta paginada genérica"""
+    items: list[T]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
 
 
 # ==== TOKEN ====

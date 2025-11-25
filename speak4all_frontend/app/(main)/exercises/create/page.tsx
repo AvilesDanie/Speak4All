@@ -115,8 +115,8 @@ const CreateExercisePage: React.FC = () => {
         const fetchExercises = async () => {
             try {
                 setLoadingExercises(true);
-                const data = await getMyExercises(token);
-                setMyExercises(data);
+                const data = await getMyExercises(token, 1, 1000);
+                setMyExercises(data.items);
             } catch (err) {
                 console.error('Error listando ejercicios:', err);
             } finally {

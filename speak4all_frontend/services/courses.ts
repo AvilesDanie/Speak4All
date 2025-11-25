@@ -3,6 +3,15 @@
 import { API_BASE, fetchJSON } from './apiClient';
 import type { ExerciseOut } from './exercises';
 
+// ==== PAGINATION ====
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
 // Tipos mínimos (expandir según backend)
 export interface Course {
   id: number;
@@ -21,8 +30,9 @@ export interface CourseGroup {
 }
 
 // Cursos
-export function getMyCourses(token: string) {
-  return fetchJSON<Course[]>('/courses/my', { token });
+export function getMyCourses(token: string, page = 1, pageSize = 10) {
+  const url = `/courses/my?page=${page}&page_size=${pageSize}`;
+  return fetchJSON<PaginatedResponse<Course>>(url, { token });
 }
 
 export function createCourse(token: string, name: string, description: string | null) {

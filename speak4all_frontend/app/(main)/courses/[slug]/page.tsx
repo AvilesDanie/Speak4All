@@ -231,8 +231,8 @@ const CoursePage: React.FC = () => {
         async (authToken: string) => {
             try {
                 setLoadingCourse(true);
-                const data = await getMyCourses(authToken);
-                const found = findCourseFromSlug(data, slug);
+                const data = await getMyCourses(authToken, 1, 1000);
+                const found = findCourseFromSlug(data.items, slug);
 
                 if (!found) {
                     showError('Curso no encontrado.');

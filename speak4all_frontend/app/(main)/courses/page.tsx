@@ -7,6 +7,8 @@ import { InputText } from 'primereact/inputtext';
 import { Tag } from 'primereact/tag';
 import { Dialog } from 'primereact/dialog';
 import { ColorPicker } from 'primereact/colorpicker';
+import { Paginator, PaginatorPageChangeEvent } from 'primereact/paginator';
+import { Dropdown } from 'primereact/dropdown';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -40,6 +42,12 @@ const CoursesPage: React.FC = () => {
     const [filteredCourses, setFilteredCourses] = useState<Course[]>([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
+
+    // Paginación
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(10);
+    const [totalCourses, setTotalCourses] = useState(0);
+    const [totalPages, setTotalPages] = useState(0);
 
     // Modales curso
     const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -96,14 +104,18 @@ const CoursesPage: React.FC = () => {
     };
 
     // Cargar cursos
-    const loadCourses = useCallback(async (authToken: string) => {
+    const loadCourses = useCallback(async (authToken: string, currentPage: number, currentPageSize: number) => {
         try {
             setLoading(true);
-            const data = await getMyCourses(authToken);
-            setCourses(data);
+            const data = await getMyCourses(authToken, currentPage, currentPageSize);
+            setCourses(data.items);
+            setTotalCourses(data.total);
+            setTotalPages(data.total_pages);
         } catch (err) {
             console.error('Error obteniendo cursos:', err);
             setCourses([]);
+            setTotalCourses(0);
+            setTotalPages(0);
         } finally {
             setLoading(false);
         }
@@ -137,9 +149,9 @@ const CoursesPage: React.FC = () => {
             setLoading(false);
             return;
         }
-        loadCourses(token);
+        loadCourses(token, page, pageSize);
         loadGroups(token);
-    }, [authLoading, token, loadCourses, loadGroups]);
+    }, [authLoading, token, page, pageSize, loadCourses, loadGroups]);
 
     // Filtro combinado
     useEffect(() => {
@@ -202,6 +214,11 @@ const CoursesPage: React.FC = () => {
         if (role === 'THERAPIST') setShowCreateDialog(true);
         else if (role === 'STUDENT') setShowJoinDialog(true);
     };
+
+    const handlePageChange = (event: PaginatorPageChangeEvent) => {
+        setPage(event.page + 1); // Paginator usa base 0, backend usa base 1
+        setPageSize(event.rows);
+    };
     const goToCourse = (course: Course) => router.push(`/courses/${course.join_code}`);
     const primaryLabel = role === 'THERAPIST' ? 'Crear curso' : role === 'STUDENT' ? 'Unirse a un curso' : 'Acción';
     const primaryIcon = role === 'THERAPIST' ? 'pi pi-plus' : 'pi pi-sign-in';
@@ -235,7 +252,7 @@ const CoursesPage: React.FC = () => {
         setDeleting(true);
         try {
             await serviceDeleteCourse(token, courseToDelete.id);
-            await loadCourses(token);
+            await loadCourses(token, page, pageSize);
             setDeleteConfirmVisible(false);
             setCourseToDelete(null);
         } catch (err) {
@@ -288,8 +305,8 @@ const CoursesPage: React.FC = () => {
                         <Button label={primaryLabel} icon={primaryIcon} onClick={handlePrimaryAction} className="p-button-lg" />
                     )}
                 </div>
-                <CreateCourseDialog visible={showCreateDialog} onHide={() => setShowCreateDialog(false)} token={token} onCreated={() => token && loadCourses(token)} />
-                <JoinCourseDialog visible={showJoinDialog} onHide={() => setShowJoinDialog(false)} token={token} onJoined={() => token && loadCourses(token)} onSuccess={handleJoinSuccess} />
+                <CreateCourseDialog visible={showCreateDialog} onHide={() => setShowCreateDialog(false)} token={token} onCreated={() => token && loadCourses(token, page, pageSize)} />
+                <JoinCourseDialog visible={showJoinDialog} onHide={() => setShowJoinDialog(false)} token={token} onJoined={() => token && loadCourses(token, page, pageSize)} onSuccess={handleJoinSuccess} />
                 <Dialog header="Solicitud enviada" visible={successVisible} modal style={{ width: '26rem', maxWidth: '95vw' }} onHide={() => setSuccessVisible(false)}>
                     <div className="flex align-items-center justify-content-center flex-column text-center p-3">
                         <i className="pi pi-check-circle mb-3" style={{ fontSize: '3rem', color: '#10b981' }} />
@@ -306,13 +323,41 @@ const CoursesPage: React.FC = () => {
             <div className="flex justify-content-between align-items-center mb-3">
                 <div>
                     <h2 className="text-2xl font-bold mb-1">Mis cursos</h2>
-                    <p className="text-600 m-0">{courses.length} curso{courses.length !== 1 ? 's' : ''} en total</p>
+                    <p className="text-600 m-0">{totalCourses} curso{totalCourses !== 1 ? 's' : ''} en total</p>
                 </div>
                 <div className="flex align-items-center gap-2">
                     <span className="p-input-icon-left">
                         <i className="pi pi-search" />
                         <InputText value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar curso o código" style={{ width: '14rem' }} />
                     </span>
+                    <Dropdown 
+                        value={pageSize} 
+                        options={[5, 10, 20, 50].map(v => ({ label: `${v} por página`, value: v }))} 
+                        onChange={(e) => {
+                            setPageSize(e.value);
+                            setPage(1);
+                        }} 
+                        placeholder="Items por página"
+                    />
+                </div>
+            </div>
+
+            {/* Paginador superior */}
+            {totalCourses > 0 && (
+                <div className="mb-3">
+                    <Paginator
+                        first={(page - 1) * pageSize}
+                        rows={pageSize}
+                        totalRecords={totalCourses}
+                        onPageChange={handlePageChange}
+                        template="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink"
+                    />
+                </div>
+            )}
+
+            <div className="flex justify-content-between align-items-center mb-3">
+                <div></div>
+                <div className="flex align-items-center gap-2">
                     {groups.length > 0 && (
                         <div className="flex gap-2 flex-wrap">
                             <Button label="Todos" className={groupFilter === 'ALL' ? 'p-button-sm' : 'p-button-text p-button-sm'} onClick={() => setGroupFilter('ALL')} />
@@ -426,14 +471,15 @@ const CoursesPage: React.FC = () => {
                                 </div>
                             </div>
                         </div>
-                    );
+                    );  
                 })}
             </div>
+
             {role && (
                 <Button label={primaryLabel} icon={primaryIcon} className="p-button-rounded p-button-lg shadow-4" onClick={handlePrimaryAction} style={{ position: 'fixed', bottom: '2rem', right: '2rem', zIndex: 20, background: role === 'THERAPIST' ? 'linear-gradient(135deg,#4f46e5,#8b5cf6)' : 'linear-gradient(135deg,#10b981,#22c55e)', border: 'none' }} />
             )}
-            <CreateCourseDialog visible={showCreateDialog} onHide={() => setShowCreateDialog(false)} token={token} onCreated={() => token && loadCourses(token)} />
-            <JoinCourseDialog visible={showJoinDialog} onHide={() => setShowJoinDialog(false)} token={token} onJoined={() => token && loadCourses(token)} onSuccess={handleJoinSuccess} />
+            <CreateCourseDialog visible={showCreateDialog} onHide={() => setShowCreateDialog(false)} token={token} onCreated={() => token && loadCourses(token, page, pageSize)} />
+            <JoinCourseDialog visible={showJoinDialog} onHide={() => setShowJoinDialog(false)} token={token} onJoined={() => token && loadCourses(token, page, pageSize)} onSuccess={handleJoinSuccess} />
             <Dialog header="Solicitud enviada" visible={successVisible} modal style={{ width: '26rem', maxWidth: '95vw' }} onHide={() => setSuccessVisible(false)}>
                 <div className="flex align-items-center justify-content-center flex-column text-center p-3">
                     <i className="pi pi-check-circle mb-3" style={{ fontSize: '3rem', color: '#10b981' }} />
