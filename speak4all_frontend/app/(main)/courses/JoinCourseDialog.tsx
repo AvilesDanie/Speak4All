@@ -2,6 +2,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { joinCourse } from '@/services/courses';
 import { Dialog } from 'primereact/dialog';
 import { InputText } from 'primereact/inputtext';
 import { Button } from 'primereact/button';
@@ -51,41 +52,18 @@ const JoinCourseDialog: React.FC<JoinCourseDialogProps> = ({
         setError(null);
 
         try {
-            const res = await fetch('http://localhost:8000/courses/join', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`,
-                },
-                body: JSON.stringify({
-                    join_code: joinCode.trim(),
-                }),
-            });
-
-            const text = await res.text();
-
-            if (!res.ok) {
-                console.error('Error uniéndose al curso:', text);
-                setError(text || 'No se pudo enviar la solicitud.');
-                return;
-            }
-
-            // const data = JSON.parse(text); // si lo necesitas
-
-            // Avisamos al padre que se envió correctamente
+            await joinCourse(token, joinCode.trim());
             if (onJoined) onJoined();
             if (onSuccess)
                 onSuccess(
                     'Tu solicitud para unirte al curso ha sido enviada. ' +
                         'Espera a que tu terapeuta la acepte.'
                 );
-
-            // Cerramos y limpiamos el formulario
             resetForm();
             onHide();
-        } catch (err) {
-            console.error('Error de red uniéndose al curso:', err);
-            setError('Error de red al unirse al curso.');
+        } catch (err: any) {
+            console.error('Error uniéndose al curso:', err);
+            setError(err.message || 'No se pudo enviar la solicitud.');
         } finally {
             setSubmitting(false);
         }

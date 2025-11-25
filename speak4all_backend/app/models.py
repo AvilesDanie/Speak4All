@@ -32,10 +32,13 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
-    google_sub = Column(String, unique=True, index=True, nullable=False)  # id de Google
+    # ID de Google (puede ser nulo si el usuario usa solo email/contraseña)
+    google_sub = Column(String, unique=True, index=True, nullable=True)
     email = Column(String, unique=True, index=True, nullable=False)
     full_name = Column(String, nullable=False)
     role = Column(Enum(UserRole), nullable=False)
+    # Autenticación local
+    password_hash = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
     is_active = Column(Boolean, default=True)
     deleted_at = Column(DateTime(timezone=True), nullable=True)
@@ -97,6 +100,7 @@ class Exercise(Base):
 
     id = Column(Integer, primary_key=True)
     therapist_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    folder_id = Column(Integer, ForeignKey("exercise_folders.id"), nullable=True)
     name = Column(String, nullable=False)
     prompt = Column(Text, nullable=True)         # prompt usado con IA
     text = Column(Text, nullable=False)         # texto final del ejercicio
@@ -104,6 +108,9 @@ class Exercise(Base):
     created_at = Column(DateTime(timezone=True), default=utcnow)
     updated_at = Column(DateTime(timezone=True), default=utcnow)
     is_deleted = Column(Boolean, default=False)
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+
+    folder = relationship("ExerciseFolder", back_populates="exercises")
 
 
 class CourseExercise(Base):
@@ -118,6 +125,7 @@ class CourseExercise(Base):
     published_at = Column(DateTime(timezone=True), default=utcnow)
     due_date = Column(DateTime(timezone=True), nullable=True)
     is_deleted = Column(Boolean, default=False)
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
 
     course = relationship("Course", back_populates="exercises")
     exercise = relationship("Exercise")
@@ -153,3 +161,56 @@ class Observation(Base):
     created_at = Column(DateTime(timezone=True), default=utcnow)
     updated_at = Column(DateTime(timezone=True), default=utcnow)
     is_deleted = Column(Boolean, default=False)
+
+
+class ExerciseFolder(Base):
+    """
+    Carpeta para organizar ejercicios del terapeuta.
+    """
+    __tablename__ = "exercise_folders"
+
+    id = Column(Integer, primary_key=True)
+    therapist_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    name = Column(String, nullable=False)
+    color = Column(String, nullable=True)  # Código de color hex para UI
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    is_deleted = Column(Boolean, default=False)
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+
+    exercises = relationship("Exercise", back_populates="folder")
+
+
+class CourseGroup(Base):
+    """
+    Grupo/carpeta para organizar cursos (tanto para terapeutas como estudiantes).
+    """
+    __tablename__ = "course_groups"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    name = Column(String, nullable=False)
+    color = Column(String, nullable=True)  # Código de color hex para UI
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    is_deleted = Column(Boolean, default=False)
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+
+    assignments = relationship("CourseGroupAssignment", back_populates="group")
+
+
+class CourseGroupAssignment(Base):
+    """
+    Asignación de un curso a un grupo (muchos a muchos).
+    """
+    __tablename__ = "course_group_assignments"
+
+    id = Column(Integer, primary_key=True)
+    course_group_id = Column(Integer, ForeignKey("course_groups.id"), nullable=False)
+    course_id = Column(Integer, ForeignKey("courses.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+
+    group = relationship("CourseGroup", back_populates="assignments")
+    course = relationship("Course")
+
+    __table_args__ = (
+        UniqueConstraint("course_group_id", "course_id", name="uniq_course_group_assignment"),
+    )

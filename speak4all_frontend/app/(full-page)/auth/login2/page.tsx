@@ -1,15 +1,85 @@
 'use client';
 import { useRouter } from 'next/navigation';
 import { Button } from 'primereact/button';
-import React from 'react';
+import { InputText } from 'primereact/inputtext';
+import { Password } from 'primereact/password';
+import { Dropdown } from 'primereact/dropdown';
+import React, { useState } from 'react';
 import type { Page } from '@/types';
 import { signIn } from 'next-auth/react';
 
 const Login: Page = () => {
     const router = useRouter();
 
+    // Estado para login/registro local
+    const [mode, setMode] = useState<'login' | 'register'>('login');
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [fullName, setFullName] = useState('');
+    const [role, setRole] = useState<'THERAPIST' | 'STUDENT' | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
     const handleGoogleLogin = () => {
         signIn('google', { callbackUrl: '/' });
+    };
+
+    const handleLocalAuth = async () => {
+        try {
+            setLoading(true);
+            setError(null);
+
+            if (!email || !password) {
+                setError('Completa email y contraseña.');
+                return;
+            }
+
+            if (mode === 'register') {
+                if (!fullName || !role) {
+                    setError('Completa nombre y rol.');
+                    return;
+                }
+                const res = await fetch('/api/backend/auth/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password, full_name: fullName, role }),
+                });
+                if (!res.ok) {
+                    const errorData = await res.json().catch(() => ({ detail: 'No se pudo registrar.' }));
+                    setError(errorData.detail || 'No se pudo registrar.');
+                    return;
+                }
+                const data = await res.json();
+                // Guardar correctamente el usuario y token
+                window.localStorage.setItem('backend_synced', 'true');
+                window.localStorage.setItem('backend_token', data.token.access_token);
+                window.localStorage.setItem('backend_user', JSON.stringify(data.user));
+                router.replace('/');
+                return;
+            }
+
+            // login
+            const res = await fetch('/api/backend/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password }),
+            });
+            if (!res.ok) {
+                const errorData = await res.json().catch(() => ({ detail: 'Credenciales inválidas.' }));
+                setError(errorData.detail || 'Credenciales inválidas.');
+                return;
+            }
+            const data = await res.json();
+            // Guardar correctamente el usuario y token
+            window.localStorage.setItem('backend_synced', 'true');
+            window.localStorage.setItem('backend_token', data.token.access_token);
+            window.localStorage.setItem('backend_user', JSON.stringify(data.user));
+            router.replace('/');
+        } catch (e) {
+            setError('Error de red. Intenta nuevamente.');
+        } finally {
+            setLoading(false);
+        }
     };
 
     return (
@@ -96,14 +166,15 @@ const Login: Page = () => {
                         <div className="text-center mb-4">
                             <h2 className="text-xl font-semibold mb-1">Inicia sesión</h2>
                             <p className="m-0 text-600" style={{ fontSize: '0.9rem' }}>
-                                Usa tu cuenta de Google para entrar a la plataforma.
+                                Usa Google o tu correo para entrar.
                             </p>
                         </div>
 
+                        {/* Google */}
                         <Button
                             label="Continuar con Google"
                             icon="pi pi-google"
-                            className="w-full p-3 border-round-2xl"
+                            className="w-full p-3 border-round-2xl mb-3"
                             onClick={handleGoogleLogin}
                             style={{
                                 background: '#ffffff',
@@ -113,11 +184,55 @@ const Login: Page = () => {
                             }}
                         />
 
-                        <div className="mt-4 text-center">
-                            <small className="text-600" style={{ fontSize: '0.8rem' }}>
-                                Al continuar aceptas nuestras políticas de privacidad y términos de
-                                uso.
-                            </small>
+                        {/* Divider */}
+                        <div className="flex align-items-center my-3">
+                            <div className="flex-1" style={{ height: 1, background: '#e5e7eb' }} />
+                            <span className="px-2 text-600" style={{ fontSize: '0.8rem' }}>o</span>
+                            <div className="flex-1" style={{ height: 1, background: '#e5e7eb' }} />
+                        </div>
+
+                        {/* Local auth */}
+                        <div className="grid">
+                            {mode === 'register' && (
+                                <div className="col-12 mb-2">
+                                    <label className="text-600 text-sm mb-1 block">Nombre completo</label>
+                                    <InputText value={fullName} onChange={(e) => setFullName(e.target.value)} className="w-full" />
+                                </div>
+                            )}
+                            <div className="col-12 mb-2">
+                                <label className="text-600 text-sm mb-1 block">Correo</label>
+                                <InputText value={email} onChange={(e) => setEmail(e.target.value)} className="w-full" />
+                            </div>
+                            <div className="col-12 mb-2">
+                                <label className="text-600 text-sm mb-1 block">Contraseña</label>
+                                <Password value={password} onChange={(e) => setPassword(e.target.value)} className="w-full" inputClassName="w-full" toggleMask feedback={false} />
+                            </div>
+                            {mode === 'register' && (
+                                <div className="col-12 mb-2">
+                                    <label className="text-600 text-sm mb-1 block">Rol</label>
+                                    <Dropdown value={role} onChange={(e) => setRole(e.value)} className="w-full" options={[{ label: 'Terapeuta', value: 'THERAPIST' }, { label: 'Estudiante', value: 'STUDENT' }]} placeholder="Selecciona rol" />
+                                </div>
+                            )}
+                        </div>
+
+                        {error && (
+                            <div className="p-2 border-round text-red-500" style={{ background: '#fef2f2', border: '1px solid #fecaca' }}>{error}</div>
+                        )}
+
+                        <Button
+                            label={mode === 'login' ? 'Entrar' : 'Crear cuenta'}
+                            icon={mode === 'login' ? 'pi pi-sign-in' : 'pi pi-user-plus'}
+                            className="w-full p-3 border-round-2xl mt-2"
+                            onClick={handleLocalAuth}
+                            loading={loading}
+                        />
+
+                        <div className="mt-3 text-center">
+                            <Button
+                                label={mode === 'login' ? 'Crear una cuenta' : 'Ya tengo cuenta'}
+                                className="p-button-text"
+                                onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
+                            />
                         </div>
 
                         <div className="mt-4 flex align-items-center justify-content-center">
@@ -129,7 +244,7 @@ const Login: Page = () => {
                                 }}
                             >
                                 <i className="pi pi-lock mr-2" />
-                                Autenticación segura mediante OAuth 2.0
+                                Autenticación con Google y con correo
                             </span>
                         </div>
                     </div>

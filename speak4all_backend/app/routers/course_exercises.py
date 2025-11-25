@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from .. import models, schemas
 from ..database import get_db
 from ..deps import get_current_user
+from ..websocket_manager import manager
 
 router = APIRouter()
 
@@ -30,7 +31,7 @@ def require_student(user: models.User):
 # ==== PUBLICAR ====
 
 @router.post("/", response_model=schemas.CourseExerciseOut)
-def publish_exercise_to_course(
+async def publish_exercise_to_course(
     body: schemas.CourseExerciseCreate,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
@@ -66,6 +67,19 @@ def publish_exercise_to_course(
             detail="Ejercicio no encontrado o no pertenece al terapeuta."
         )
 
+    # Verificar si el ejercicio ya está publicado en este curso
+    existing = db.query(models.CourseExercise).filter(
+        models.CourseExercise.course_id == course.id,
+        models.CourseExercise.exercise_id == exercise.id,
+        models.CourseExercise.is_deleted.is_(False)
+    ).first()
+
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Este ejercicio ya está publicado en el curso."
+        )
+
     course_ex = models.CourseExercise(
         course_id=course.id,
         exercise_id=exercise.id,
@@ -76,6 +90,11 @@ def publish_exercise_to_course(
     db.add(course_ex)
     db.commit()
     db.refresh(course_ex)
+    
+    # Broadcast to connected clients
+    course_ex_dict = schemas.CourseExerciseOut.model_validate(course_ex).model_dump(mode='json')
+    await manager.broadcast_exercise_published(course.id, course_ex_dict)
+    
     return course_ex
 
 
@@ -112,3 +131,51 @@ def list_course_exercises(
     ).all()
 
     return items
+
+
+# ==== ELIMINAR ejercicio publicado ====
+
+@router.delete("/{course_exercise_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_published_exercise(
+    course_exercise_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Elimina lógicamente un ejercicio publicado en un curso (solo terapeuta dueño del curso).
+    """
+    require_therapist(current_user)
+
+    # Buscar el ejercicio publicado
+    course_exercise = db.query(models.CourseExercise).filter(
+        models.CourseExercise.id == course_exercise_id,
+        models.CourseExercise.is_deleted.is_(False)
+    ).first()
+
+    if not course_exercise:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Ejercicio publicado no encontrado o ya está eliminado."
+        )
+
+    # Verificar que el terapeuta es dueño del curso
+    course = db.query(models.Course).filter(
+        models.Course.id == course_exercise.course_id,
+        models.Course.therapist_id == current_user.id
+    ).first()
+
+    if not course:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para eliminar este ejercicio."
+        )
+
+    # Marcar como eliminado
+    course_exercise.is_deleted = True
+    course_exercise.deleted_at = datetime.now(timezone.utc)
+    db.commit()
+    
+    # Broadcast to connected clients
+    await manager.broadcast_exercise_deleted(course.id, course_exercise_id)
+    
+    return

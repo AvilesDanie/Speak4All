@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { createCourse } from '@/services/courses';
 import { Dialog } from 'primereact/dialog';
 import { InputText } from 'primereact/inputtext';
 import { InputTextarea } from 'primereact/inputtextarea';
@@ -65,32 +66,13 @@ const CreateCourseDialog: React.FC<CreateCourseDialogProps> = ({
         setError(null);
 
         try {
-            const res = await fetch('http://localhost:8000/courses/', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`,
-                },
-                body: JSON.stringify({
-                    name: name.trim(),
-                    description: description.trim() || null,
-                }),
-            });
-
-            if (!res.ok) {
-                const text = await res.text();
-                console.error('Error creando curso:', text);
-                setError(text || 'Error al crear el curso.');
-                return;
-            }
-
+            await createCourse(token, name.trim(), description.trim() || null);
             if (onCreated) onCreated();
             resetForm();
             onHide();
-
-        } catch (err) {
-            console.error('Error de red creando curso:', err);
-            setError('Error de red al crear el curso.');
+        } catch (err: any) {
+            console.error('Error creando curso:', err);
+            setError(err.message || 'Error al crear el curso.');
         } finally {
             setSubmitting(false);
         }
@@ -105,7 +87,7 @@ const CreateCourseDialog: React.FC<CreateCourseDialogProps> = ({
                 disabled={submitting}
             />
             <Button
-                label="Crear curso"
+                label="Crear"
                 icon="pi pi-check"
                 onClick={handleSubmit}
                 loading={submitting}

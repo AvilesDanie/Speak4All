@@ -4,12 +4,15 @@ import React, { useEffect, useState } from 'react';
 import { Dialog } from 'primereact/dialog';
 import { Button } from 'primereact/button';
 import { InputText } from 'primereact/inputtext';
+import { getMyExercises } from '@/services/exercises';
+import { publishCourseExercise } from '@/services/courses';
 
 interface PublishExerciseDialogProps {
     visible: boolean;
     onHide: () => void;
     token: string;
     courseId: number;
+    publishedExerciseIds?: number[];
     onPublished?: () => void;
 }
 
@@ -25,9 +28,11 @@ const PublishExerciseDialog: React.FC<PublishExerciseDialogProps> = ({
     onHide,
     token,
     courseId,
+    publishedExerciseIds = [],
     onPublished,
 }) => {
     const [exercises, setExercises] = useState<Exercise[]>([]);
+    const [availableExercises, setAvailableExercises] = useState<Exercise[]>([]);
     const [loading, setLoading] = useState(false);
     const [selectedId, setSelectedId] = useState<number | null>(null);
     const [dueDate, setDueDate] = useState<string>('');
@@ -36,71 +41,45 @@ const PublishExerciseDialog: React.FC<PublishExerciseDialogProps> = ({
 
     useEffect(() => {
         if (!visible) return;
-
-        const fetchExercises = async () => {
+        const load = async () => {
             try {
                 setLoading(true);
-                const res = await fetch('http://localhost:8000/exercises/mine', {
-                    headers: { Authorization: `Bearer ${token}` },
-                });
-                if (!res.ok) {
-                    const text = await res.text();
-                    console.error('Error obteniendo ejercicios:', text);
-                    setError(text || 'No se pudieron obtener los ejercicios.');
-                    return;
-                }
-                const data: Exercise[] = await res.json();
+                const data = await getMyExercises(token);
                 setExercises(data);
-            } catch (err) {
-                console.error('Error de red:', err);
-                setError('Error de red al obtener ejercicios.');
+            } catch (err: any) {
+                console.error('Error obteniendo ejercicios:', err);
+                setError(err?.message || 'No se pudieron obtener los ejercicios.');
             } finally {
                 setLoading(false);
             }
         };
-
-        fetchExercises();
+        load();
     }, [visible, token]);
+
+    // Filtrar ejercicios ya publicados
+    useEffect(() => {
+        const filtered = exercises.filter(
+            (ex) => !publishedExerciseIds.includes(ex.id)
+        );
+        setAvailableExercises(filtered);
+    }, [exercises, publishedExerciseIds]);
 
     const handlePublish = async () => {
         if (!selectedId) {
             setError('Selecciona un ejercicio.');
             return;
         }
-
         setSubmitting(true);
         setError(null);
-
         try {
-            const body: any = {
-                course_id: courseId,
-                exercise_id: selectedId,
-                due_date: dueDate ? new Date(dueDate).toISOString() : null,
-            };
-
-            const res = await fetch('http://localhost:8000/course-exercises/', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`,
-                },
-                body: JSON.stringify(body),
-            });
-
-            if (!res.ok) {
-                const text = await res.text();
-                console.error('Error publicando ejercicio:', text);
-                setError(text || 'No se pudo publicar el ejercicio.');
-                return;
-            }
-
-            if (onPublished) onPublished();
+            await publishCourseExercise(token, courseId, selectedId, dueDate ? new Date(dueDate).toISOString() : null);
+            onPublished?.();
             onHide();
             setSelectedId(null);
             setDueDate('');
-        } catch (err) {
-            console.error('Error de red:', err);
-            setError('Error de red al publicar el ejercicio.');
+        } catch (err: any) {
+            console.error('Error publicando ejercicio:', err);
+            setError(err?.message || 'No se pudo publicar el ejercicio.');
         } finally {
             setSubmitting(false);
         }
@@ -138,6 +117,10 @@ const PublishExerciseDialog: React.FC<PublishExerciseDialogProps> = ({
                 <p className="text-600">
                     No tienes ejercicios creados. Crea uno primero y vuelve aquí.
                 </p>
+            ) : !availableExercises.length ? (
+                <p className="text-600">
+                    Todos tus ejercicios ya están publicados en este curso.
+                </p>
             ) : (
                 <div className="p-fluid flex flex-column gap-3">
                     <div>
@@ -145,7 +128,7 @@ const PublishExerciseDialog: React.FC<PublishExerciseDialogProps> = ({
                             Selecciona un ejercicio
                         </h4>
                         <div className="card p-0" style={{ maxHeight: '14rem', overflowY: 'auto' }}>
-                            {exercises.map((ex) => (
+                            {availableExercises.map((ex) => (
                                 <div
                                     key={ex.id}
                                     className={`flex flex-column p-3 cursor-pointer border-bottom-1 surface-border ${

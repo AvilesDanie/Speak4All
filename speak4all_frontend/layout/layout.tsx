@@ -34,8 +34,13 @@ const Layout = (props: ChildContainerProps) => {
         pathname.startsWith('/auth/error');
 
     useEffect(() => {
-        if (status === 'loading') return;          // todavía comprobando
-        if (status === 'unauthenticated' && !isPublicRoute) {
+        if (status === 'loading') return; // esperando next-auth
+
+        // Permitir acceso si hay token local del backend, aunque no haya sesión de Google
+        const hasLocalToken =
+            typeof window !== 'undefined' && !!window.localStorage.getItem('backend_token');
+
+        if (status === 'unauthenticated' && !isPublicRoute && !hasLocalToken) {
             router.replace('/auth/login2');
         }
     }, [status, isPublicRoute, router]);
@@ -132,24 +137,27 @@ const Layout = (props: ChildContainerProps) => {
         const alreadySynced = window.localStorage.getItem('backend_synced');
         if (alreadySynced === 'true') return;
 
+        const googleIdToken = (session as any)?.google_id_token;
         const googleSub = (session as any)?.google_sub;
-        if (!googleSub) return;
+        if (!googleIdToken && !googleSub) return;
 
         const run = async () => {
             try {
                 // 1) Preguntar al backend si el usuario ya existe
-                const resCheck = await fetch('/api/backend/auth/check', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ google_sub: googleSub }),
-                });
+                if (googleSub) {
+                    const resCheck = await fetch('/api/backend/auth/check', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ google_sub: googleSub }),
+                    });
 
-                const { exists } = await resCheck.json();
+                    const { exists } = await resCheck.json();
 
-                if (!exists) {
-                    // Usuario nuevo → enviar a seleccionar rol
-                    router.replace('/auth/select-role');
-                    return;
+                    if (!exists) {
+                        // Usuario nuevo → enviar a seleccionar rol
+                        router.replace('/auth/select-role');
+                        return;
+                    }
                 }
 
                 // 2) Usuario ya existe → obtener token del backend
@@ -157,7 +165,9 @@ const Layout = (props: ChildContainerProps) => {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        google_sub: googleSub,
+                        // Enviar siempre id_token Y datos de fallback para que funcione sin GOOGLE_CLIENT_ID
+                        id_token: googleIdToken,
+                        google_sub: googleSub, // Siempre enviar para fallback
                         email: session?.user?.email,
                         full_name: session?.user?.name,
                         role: 'STUDENT', // el backend ignora el role si el user ya existe
@@ -251,8 +261,9 @@ const Layout = (props: ChildContainerProps) => {
         return <div>Cargando...</div>;
     }
 
-    // Si no hay sesión y no es pública, estamos redirigiendo en el useEffect
-    if (status === 'unauthenticated' && !isPublicRoute) {
+    // Si no hay sesión y no es pública, solo bloquea si NO hay token local
+    const hasLocalTokenRender = typeof window !== 'undefined' && !!window.localStorage.getItem('backend_token');
+    if (status === 'unauthenticated' && !isPublicRoute && !hasLocalTokenRender) {
         return null;
     }
 

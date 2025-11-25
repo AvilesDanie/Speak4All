@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from pathlib import Path
 import shutil
+import logging
 
 from fastapi import (
     APIRouter,
@@ -15,12 +16,43 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from .. import models, schemas
 from ..deps import get_current_user
+from ..config import settings
+from ..websocket_manager import manager
 from sqlalchemy import and_
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Carpeta base donde guardaremos los audios de entregas
 BASE_SUBMISSIONS_DIR = Path("media/submissions")
+
+
+def validate_audio_file(file: UploadFile) -> None:
+    """
+    Valida que el archivo subido sea de audio y no exceda el límite de tamaño.
+    """
+    # Validar tipo de contenido
+    allowed_types = [t.strip() for t in settings.allowed_audio_types.split(",")]
+    
+    if file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Tipo de archivo no permitido. Solo se aceptan: {', '.join(allowed_types)}"
+        )
+    
+    # Validar tamaño (leer en chunks para no cargar todo en memoria)
+    max_size = settings.max_upload_size_mb * 1024 * 1024  # MB a bytes
+    file.file.seek(0, 2)  # Ir al final del archivo
+    file_size = file.file.tell()
+    file.file.seek(0)  # Volver al inicio
+    
+    if file_size > max_size:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"El archivo excede el tamaño máximo permitido de {settings.max_upload_size_mb}MB"
+        )
+    
+    logger.info(f"Archivo validado: {file.filename} ({file_size / 1024:.2f}KB, {file.content_type})")
 
 
 def require_student(user: models.User):
@@ -147,7 +179,8 @@ def save_submission_audio(
 ) -> str:
     """
     Guarda el audio en disco y devuelve el path (string).
-    Estructura: media/submissions/{course_id}/{course_ex_id}/{student_id}/timestamp_nombre.mp3
+    Estructura: submissions/{course_id}/{course_ex_id}/{student_id}/timestamp_nombre.mp3
+    (relativo a media/, sin incluir 'media/' en el string)
     """
     BASE_SUBMISSIONS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -159,15 +192,17 @@ def save_submission_audio(
     target_dir.mkdir(parents=True, exist_ok=True)
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    # Forzar extensión .mp3 (puedes afinarlo según tu front)
     filename = f"{ts}_{file.filename}"
     dest = target_dir / filename
 
     with dest.open("wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    # Devolvemos el path relativo a la carpeta base del proyecto
-    return str(dest.as_posix())
+    # Asegura que ambas rutas sean absolutas
+    dest_abs = dest.resolve()
+    media_base = (Path.cwd() / "media").resolve()
+    rel_path = dest_abs.relative_to(media_base)
+    return str(rel_path.as_posix())
 
 
 # ========== ENDPOINTS ==========
@@ -204,12 +239,13 @@ async def submit_exercise(
         db, current_user.id, course_exercise_id
     )
 
-    # Si se adjunta audio, lo guardamos
+    # Si se adjunta audio, validarlo y guardarlo
     if audio is not None:
-        # Puedes validar tipo aquí si quieres: audio.content_type == "audio/mpeg", etc.
+        validate_audio_file(audio)
         audio_path = save_submission_audio(audio, course_ex, current_user.id)
         submission.audio_path = audio_path
         submission.status = models.SubmissionStatus.DONE
+        logger.info(f"Audio guardado para submission {submission.id}: {audio_path}")
     else:
         # Sin audio, solo marcar o no como hecho
         submission.status = (
@@ -220,6 +256,11 @@ async def submit_exercise(
 
     db.commit()
     db.refresh(submission)
+    
+    # Broadcast to connected clients
+    submission_dict = schemas.SubmissionOut.model_validate(submission).model_dump(mode='json')
+    await manager.broadcast_submission_created(course_ex.course_id, submission_dict)
+    
     return submission
 
 
@@ -227,7 +268,7 @@ async def submit_exercise(
     "/{submission_id}/status",
     response_model=schemas.SubmissionOut,
 )
-def update_submission_status(
+async def update_submission_status(
     submission_id: int,
     body: schemas.SubmissionStatusUpdate,
     db: Session = Depends(get_db),
@@ -265,6 +306,11 @@ def update_submission_status(
     sub.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(sub)
+    
+    # Broadcast to connected clients
+    submission_dict = schemas.SubmissionOut.model_validate(sub).model_dump(mode='json')
+    await manager.broadcast_submission_updated(course_ex.course_id, submission_dict)
+    
     return sub
 
 
@@ -311,6 +357,55 @@ def delete_submission_audio(
     db.refresh(sub)
     return sub
 
+
+@router.delete(
+    "/course-exercises/{course_exercise_id}/cancel",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def cancel_submission(
+    course_exercise_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Anula completamente una entrega del estudiante.
+    Solo puede hacerlo el estudiante dueño de la entrega.
+    Elimina el registro de la base de datos.
+    """
+    require_student(current_user)
+
+    # Buscar la entrega
+    sub = db.query(models.Submission).filter(
+        models.Submission.course_exercise_id == course_exercise_id,
+        models.Submission.student_id == current_user.id,
+    ).first()
+
+    if not sub:
+        raise HTTPException(
+            status_code=404, 
+            detail="No tienes ninguna entrega para este ejercicio."
+        )
+
+    # Verificar que el ejercicio sigue disponible
+    course_ex = db.query(models.CourseExercise).filter(
+        models.CourseExercise.id == course_exercise_id,
+        models.CourseExercise.is_deleted.is_(False),
+    ).first()
+
+    if not course_ex:
+        raise HTTPException(
+            status_code=404, 
+            detail="Ejercicio no disponible."
+        )
+
+    # Verificar fecha límite
+    check_due_date(course_ex)
+
+    # Eliminar la entrega
+    db.delete(sub)
+    db.commit()
+
+    return None
 
 
 
@@ -444,7 +539,38 @@ def get_submission_detail_for_student_and_exercise(
     )
 
 
-
+@router.get("/my/count")
+def get_my_submissions_count(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Devuelve el conteo de entregas según el rol del usuario:
+    - STUDENT: cuenta sus propias entregas
+    - THERAPIST: cuenta todas las entregas recibidas en sus cursos
+    """
+    if current_user.role == models.UserRole.STUDENT:
+        # Contar entregas del estudiante
+        count = (
+            db.query(models.Submission)
+            .filter(models.Submission.student_id == current_user.id)
+            .count()
+        )
+    else:  # THERAPIST
+        # Contar entregas de todos los estudiantes en cursos del terapeuta
+        count = (
+            db.query(models.Submission)
+            .join(models.CourseExercise)
+            .join(models.Course)
+            .filter(
+                models.Course.therapist_id == current_user.id,
+                models.Course.is_active.is_(True),
+                models.Course.deleted_at.is_(None),
+            )
+            .count()
+        )
+    
+    return {"count": count}
 
 
 @router.get(
@@ -462,6 +588,8 @@ def list_student_exercises_status_in_course(
     para todos los CourseExercises de un curso.
 
     Solo puede verlo el terapeuta dueño del curso.
+    
+    Ruta: /submissions/courses/{course_id}/students/{student_id}/exercises-status
     """
     # 1) Asegurarnos que es terapeuta
     require_therapist(current_user)

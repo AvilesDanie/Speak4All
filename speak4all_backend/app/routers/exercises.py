@@ -76,6 +76,7 @@ def create_exercise(
         prompt=body.prompt,
         text=clean_text,
         audio_path=str(audio_rel_path),
+        folder_id=body.folder_id,
     )
 
     db.add(exercise)
@@ -100,3 +101,94 @@ def list_my_exercises(
     ).order_by(models.Exercise.created_at.desc()).all()
 
     return items
+
+
+# ==== 5) ACTUALIZAR CARPETA DE UN EJERCICIO ====
+
+@router.patch("/{exercise_id}/folder", response_model=schemas.ExerciseOut)
+def update_exercise_folder(
+    exercise_id: int,
+    # Hacer opcional el parámetro para permitir quitar la carpeta simplemente omitiéndolo.
+    folder_id: int | None = None,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Actualiza la carpeta de un ejercicio (o la remueve si folder_id es None).
+    """
+    require_therapist(current_user)
+
+    exercise = db.query(models.Exercise).filter(
+        models.Exercise.id == exercise_id,
+        models.Exercise.therapist_id == current_user.id,
+        models.Exercise.is_deleted.is_(False),
+    ).first()
+
+    if not exercise:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Ejercicio no encontrado o ya está eliminado."
+        )
+
+    # Verificar que la carpeta existe y pertenece al terapeuta (solo si se envía)
+    if folder_id is not None:
+        folder = db.query(models.ExerciseFolder).filter(
+            models.ExerciseFolder.id == folder_id,
+            models.ExerciseFolder.therapist_id == current_user.id,
+            models.ExerciseFolder.is_deleted.is_(False),
+        ).first()
+
+        if not folder:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Carpeta no encontrada."
+            )
+
+    exercise.folder_id = folder_id
+    exercise.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(exercise)
+    return exercise
+
+
+# ==== 6) ELIMINAR (LÓGICAMENTE) UN EJERCICIO ====
+
+@router.delete("/{exercise_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_exercise(
+    exercise_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Elimina lógicamente un ejercicio (solo el terapeuta dueño).
+    También marca como eliminados todos los CourseExercise asociados.
+    """
+    require_therapist(current_user)
+
+    exercise = db.query(models.Exercise).filter(
+        models.Exercise.id == exercise_id,
+        models.Exercise.therapist_id == current_user.id,
+        models.Exercise.is_deleted.is_(False),
+    ).first()
+
+    if not exercise:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Ejercicio no encontrado o ya está eliminado."
+        )
+
+    # Marcar ejercicio como eliminado
+    exercise.is_deleted = True
+    exercise.deleted_at = datetime.now(timezone.utc)
+
+    # Marcar todas las publicaciones de este ejercicio como eliminadas
+    db.query(models.CourseExercise).filter(
+        models.CourseExercise.exercise_id == exercise_id,
+        models.CourseExercise.is_deleted.is_(False),
+    ).update({
+        "is_deleted": True,
+        "deleted_at": datetime.now(timezone.utc)
+    }, synchronize_session=False)
+
+    db.commit()
+    return

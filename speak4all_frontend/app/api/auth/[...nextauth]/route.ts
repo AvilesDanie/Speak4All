@@ -19,12 +19,15 @@ export const authOptions: NextAuthOptions = {
       // Primer login con Google
       if (account) {
         (token as any).google_sub = account.providerAccountId;
+        // Adjuntar id_token para validación backend
+        (token as any).google_id_token = (account as any).id_token;
       }
       return token;
     },
 
     async session({ session, token }) {
       (session as any).google_sub = (token as any).google_sub;
+      (session as any).google_id_token = (token as any).google_id_token;
       return session;
     },
   },

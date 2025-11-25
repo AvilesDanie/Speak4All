@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+import logging
 
 from datetime import datetime, timezone
 
@@ -9,6 +10,7 @@ from .. import models, schemas
 from ..deps import get_current_user
 import secrets
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -34,6 +36,7 @@ def create_course(
     db.add(course)
     db.commit()
     db.refresh(course)
+    logger.info(f"Curso creado: {course.name} (ID: {course.id}, código: {join_code}) por terapeuta {current_user.id}")
     return course
 
 
@@ -317,5 +320,45 @@ def remove_student_from_course(
 
     cs.is_active = False
     cs.deleted_at = datetime.now(timezone.utc)
+    db.commit()
+    return
+
+
+# ==== 5) ELIMINAR (LÓGICAMENTE) UN CURSO ====
+
+@router.delete(
+    "/{course_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_course(
+    course_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Elimina lógicamente un curso (solo el terapeuta dueño).
+    Marca el curso como eliminado y desactiva a todos los estudiantes.
+    """
+    course = get_course_owned_or_404(db, course_id, current_user)
+
+    if course.deleted_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El curso ya está eliminado",
+        )
+
+    # Marcar curso como eliminado
+    course.is_active = False
+    course.deleted_at = datetime.now(timezone.utc)
+
+    # Desactivar todos los estudiantes del curso
+    db.query(models.CourseStudent).filter(
+        models.CourseStudent.course_id == course_id,
+        models.CourseStudent.deleted_at.is_(None),
+    ).update({
+        "is_active": False,
+        "deleted_at": datetime.now(timezone.utc)
+    }, synchronize_session=False)
+
     db.commit()
     return

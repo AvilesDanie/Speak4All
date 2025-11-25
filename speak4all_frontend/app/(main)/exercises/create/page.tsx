@@ -7,35 +7,18 @@ import { Dialog } from 'primereact/dialog';
 import { Tag } from 'primereact/tag';
 import { Card } from 'primereact/card';
 import AudioPlayer from '../AudioPlayer';
-
 import React, { useEffect, useState } from 'react';
+import { API_BASE } from '@/services/apiClient';
+import { BackendUser, Role } from '@/services/auth';
+import {
+    ExerciseOut,
+    ExercisePreview,
+    getMyExercises,
+    generateExercisePreview,
+    createExercise,
+} from '@/services/exercises';
 
-
-
-type Role = 'THERAPIST' | 'STUDENT';
-
-interface BackendUser {
-    id: number;
-    full_name: string;
-    email: string;
-    role: Role;
-}
-
-interface ExercisePreview {
-    text: string;
-    marked_text: string;
-}
-
-interface ExerciseOut {
-    id: number;
-    name: string;
-    prompt?: string | null;
-    text: string;
-    audio_path: string;
-    created_at: string;
-}
-
-const AUDIO_BASE_URL = 'http://localhost:8000'; // 👈 ajusta esto si sirves audio en otra ruta
+const AUDIO_BASE_URL = API_BASE;
 
 const stripRepTags = (value: string): string => {
     return value
@@ -132,19 +115,10 @@ const CreateExercisePage: React.FC = () => {
         const fetchExercises = async () => {
             try {
                 setLoadingExercises(true);
-                const res = await fetch('http://localhost:8000/exercises/mine', {
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                    },
-                });
-                if (!res.ok) {
-                    console.error('Error listando ejercicios:', await res.text());
-                    return;
-                }
-                const data: ExerciseOut[] = await res.json();
+                const data = await getMyExercises(token);
                 setMyExercises(data);
             } catch (err) {
-                console.error('Error de red listando ejercicios:', err);
+                console.error('Error listando ejercicios:', err);
             } finally {
                 setLoadingExercises(false);
             }
@@ -178,31 +152,14 @@ const CreateExercisePage: React.FC = () => {
         }
 
         setGenerating(true);
-
         try {
-            const res = await fetch('http://localhost:8000/exercises/preview', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`,
-                },
-                body: JSON.stringify({ prompt: prompt.trim() }),
-            });
-
-            if (!res.ok) {
-                const text = await res.text();
-                console.error('Error generando preview:', text);
-                setErrorMsg(text || 'No se pudo generar el ejercicio.');
-                return;
-            }
-
-            const data: ExercisePreview = await res.json();
+            const data = await generateExercisePreview(token, prompt.trim());
             setPreview(data);
             setMarkedText(data.marked_text);
             setPlainText(stripRepTags(data.text));
-        } catch (err) {
-            console.error('Error de red generando preview:', err);
-            setErrorMsg('Error de red al generar el ejercicio.');
+        } catch (err: any) {
+            console.error('Error generando preview:', err);
+            setErrorMsg(err?.message || 'No se pudo generar el ejercicio.');
         } finally {
             setGenerating(false);
         }
@@ -236,36 +193,20 @@ const CreateExercisePage: React.FC = () => {
 
         setSaving(true);
         setErrorMsg(null);
-
         try {
-            const res = await fetch('http://localhost:8000/exercises/', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`,
-                },
-                body: JSON.stringify({
-                    name: exerciseName.trim(),
-                    prompt: prompt.trim() || null,
-                    text: plainText.trim(),
-                    marked_text: markedText.trim(),
-                }),
-            });
-
-            if (!res.ok) {
-                const text = await res.text();
-                console.error('Error creando ejercicio:', text);
-                setErrorMsg(text || 'No se pudo guardar el ejercicio.');
-                return;
-            }
-
-            const created: ExerciseOut = await res.json();
+            const created = await createExercise(
+                token,
+                exerciseName.trim(),
+                plainText.trim(),
+                markedText.trim(),
+                prompt.trim() || null
+            );
             setMyExercises((prev) => [created, ...prev]);
             setSuccessMsg('Ejercicio creado correctamente.');
             setShowNameDialog(false);
-        } catch (err) {
-            console.error('Error de red creando ejercicio:', err);
-            setErrorMsg('Error de red al guardar el ejercicio.');
+        } catch (err: any) {
+            console.error('Error creando ejercicio:', err);
+            setErrorMsg(err?.message || 'No se pudo guardar el ejercicio.');
         } finally {
             setSaving(false);
         }

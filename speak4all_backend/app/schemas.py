@@ -30,13 +30,28 @@ class UserOut(UserBase):
 
 class GoogleLoginRequest(BaseModel):
     """
-    Por ahora simplificamos: el frontend nos manda directamente
-    google_sub, email y nombre. Luego puedes cambiar esto a id_token.
+    Soporta dos métodos:
+    1. id_token (recomendado): token JWT de Google para validación
+    2. google_sub + email + full_name (legacy, menos seguro)
+    Nota: role solo es obligatorio cuando se crea un nuevo usuario.
     """
-    google_sub: str
+    id_token: str | None = None
+    google_sub: str | None = None
+    email: str | None = None
+    full_name: str | None = None
+    role: UserRole | None = None
+
+
+class RegisterRequest(BaseModel):
     email: str
     full_name: str
     role: UserRole
+    password: str
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
 
 
 class LoginResponse(BaseModel):
@@ -136,6 +151,7 @@ class ExerciseCreateRequest(BaseModel):
     prompt: str | None = None
     text: str                  # texto limpio (lo que ve el usuario)
     marked_text: str | None = None  # si viene, se usa éste para TTS
+    folder_id: int | None = None  # carpeta donde guardar el ejercicio
 
 
 class ExerciseOut(BaseModel):
@@ -145,6 +161,7 @@ class ExerciseOut(BaseModel):
     text: str
     audio_path: str
     created_at: datetime
+    folder_id: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -271,5 +288,62 @@ class SubmissionDetailOut(BaseModel):
     """
     submission: SubmissionOut
     student: UserOut
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ==== EXERCISE FOLDERS ====
+
+class ExerciseFolderCreate(BaseModel):
+    name: str
+    color: Optional[str] = None
+
+
+class ExerciseFolderUpdate(BaseModel):
+    name: Optional[str] = None
+    color: Optional[str] = None
+
+
+class ExerciseFolderOut(BaseModel):
+    id: int
+    therapist_id: int
+    name: str
+    color: Optional[str] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ==== COURSE GROUPS ====
+
+class CourseGroupCreate(BaseModel):
+    name: str
+    color: Optional[str] = None
+
+
+class CourseGroupUpdate(BaseModel):
+    name: Optional[str] = None
+    color: Optional[str] = None
+
+
+class CourseGroupOut(BaseModel):
+    id: int
+    user_id: int
+    name: str
+    color: Optional[str] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CourseGroupAssignmentCreate(BaseModel):
+    course_id: int
+
+
+class CourseGroupAssignmentOut(BaseModel):
+    id: int
+    course_group_id: int
+    course_id: int
+    created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

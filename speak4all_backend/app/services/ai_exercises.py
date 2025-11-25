@@ -4,7 +4,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
+import logging
 
+logger = logging.getLogger(__name__)
 load_dotenv()
 
 # === CONFIG (todas desde .env si quieres) ===
@@ -40,6 +42,7 @@ def generate_marked_text_from_prompt(therapist_prompt: str) -> str:
     """
     Usa IA para generar el guion con marcadores [REP]...[/REP].
     """
+    logger.info(f"Generando texto con IA para prompt: {therapist_prompt[:100]}...")
     r = client.chat.completions.create(
         model=OPENAI_MODEL,
         messages=[
@@ -49,7 +52,9 @@ def generate_marked_text_from_prompt(therapist_prompt: str) -> str:
         temperature=0.6,
         max_tokens=700,
     )
-    return r.choices[0].message.content.strip()
+    result = r.choices[0].message.content.strip()
+    logger.info(f"Texto generado exitosamente ({len(result)} caracteres)")
+    return result
 
 
 # ========= 2) Eliminar [REP] para mostrar texto limpio al usuario =========
@@ -218,16 +223,22 @@ def build_audio_from_marked_text(marked_text: str, base_dir: Path | None = None)
     """
     Genera el mp3 a partir del guion marcado con [REP].
 
-    Devuelve una ruta **relativa** (por ejemplo "tts_build_.../exercise_....mp3")
+    Devuelve una ruta **relativa a media/** (por ejemplo "exercises/tts_build_.../exercise_....mp3")
     para guardar en la base de datos.
     """
     if base_dir is None:
         base_dir = Path.cwd()
 
+    logger.info(f"Iniciando generación de audio desde texto marcado ({len(marked_text)} caracteres)")
     segments = split_into_segments(marked_text)
+    logger.info(f"Texto dividido en {len(segments)} segmentos")
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    workdir = base_dir / f"tts_build_{ts}"
+    # Guardar dentro de media/exercises/
+    media_dir = base_dir / "media" / "exercises"
+    media_dir.mkdir(parents=True, exist_ok=True)
+    
+    workdir = media_dir / f"tts_build_{ts}"
     tmp = workdir / "tmp"
     tmp.mkdir(parents=True, exist_ok=True)
 
@@ -254,6 +265,8 @@ def build_audio_from_marked_text(marked_text: str, base_dir: Path | None = None)
     out_mp3 = workdir / f"exercise_{ts}_marcado_con_pausas.mp3"
     concat_to_mp3(norm, out_mp3)
 
-    # devolvemos ruta relativa
-    rel_path = out_mp3.relative_to(base_dir)
-    return str(rel_path)
+    # devolvemos ruta relativa a media/ (sin incluir media/ en el string)
+    media_base = base_dir / "media"
+    rel_path = out_mp3.relative_to(media_base)
+    logger.info(f"Audio generado exitosamente: {rel_path}")
+    return str(rel_path.as_posix())

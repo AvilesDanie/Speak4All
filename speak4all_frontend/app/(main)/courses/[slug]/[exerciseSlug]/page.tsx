@@ -8,46 +8,12 @@ import { ProgressBar } from 'primereact/progressbar';
 import { Dialog } from 'primereact/dialog';
 import { InputTextarea } from 'primereact/inputtextarea';
 import AudioPlayer from '../../../exercises/AudioPlayer';
+import { API_BASE } from '@/services/apiClient';
+import { BackendUser, Role } from '@/services/auth';
+import { ExerciseOut } from '@/services/exercises';
+import { CourseExercise, StudentExerciseStatus, SubmissionStatus } from '@/services/courses';
 
-
-type Role = 'THERAPIST' | 'STUDENT';
-
-interface BackendUser {
-    id: number;
-    full_name: string;
-    email: string;
-    role: Role;
-}
-
-// --- Tipos del backend que necesitamos ---
-type SubmissionStatus = 'PENDING' | 'DONE';
-
-interface ExerciseOut {
-    id: number;
-    name: string;
-    prompt?: string | null;
-    text: string;
-    audio_path: string;
-    created_at: string;
-}
-
-interface CourseExerciseOut {
-    id: number;
-    course_id: number;
-    exercise_id: number;
-    published_at: string;
-    due_date?: string | null;
-    is_deleted: boolean;
-    exercise?: ExerciseOut | null;
-}
-
-interface StudentExerciseStatus {
-    course_exercise_id: number;
-    exercise_name: string;
-    due_date?: string | null;
-    status: SubmissionStatus;
-    submitted_at?: string | null;
-}
+type CourseExerciseOut = CourseExercise;
 
 interface SubmissionOut {
     id: number;
@@ -59,8 +25,7 @@ interface SubmissionOut {
     updated_at: string;
 }
 
-const API_BASE = 'http://localhost:8000';
-const AUDIO_BASE_URL = 'http://localhost:8000';
+const AUDIO_BASE_URL = API_BASE;
 
 
 // ──────────────────────────────────────────
@@ -106,6 +71,9 @@ const CourseExerciseDetailPage: React.FC = () => {
     const [submitting, setSubmitting] = useState(false);
     const [successMsg, setSuccessMsg] = useState<string | null>(null);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
+    const [showSuccessModal, setShowSuccessModal] = useState(false);
+    const [showErrorModal, setShowErrorModal] = useState(false);
+    const [modalErrorMsg, setModalErrorMsg] = useState<string>('');
 
     const [file, setFile] = useState<File | null>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -231,7 +199,8 @@ useEffect(() => {
 
     const handleSubmit = async () => {
         if (!token || courseExerciseId == null) {
-            setErrorMsg('No se pudo enviar la entrega (falta token).');
+            setModalErrorMsg('No se pudo enviar la entrega (falta token).');
+            setShowErrorModal(true);
             return;
         }
 
@@ -259,7 +228,8 @@ useEffect(() => {
             if (!res.ok) {
                 const text = await res.text();
                 console.error('Error enviando entrega:', text);
-                setErrorMsg(text || 'No se pudo enviar la entrega.');
+                setModalErrorMsg(text || 'No se pudo enviar la entrega.');
+                setShowErrorModal(true);
                 return;
             }
 
@@ -276,10 +246,61 @@ useEffect(() => {
                     : prev
             );
 
-            setSuccessMsg('Entrega enviada correctamente.');
+            setShowSuccessModal(true);
+            setFile(null); // Limpiar archivo después de envío exitoso
         } catch (err) {
             console.error('Error de red al enviar entrega:', err);
-            setErrorMsg('Error de red al enviar la entrega.');
+            setModalErrorMsg('Error de red al enviar la entrega.');
+            setShowErrorModal(true);
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const handleCancelSubmission = async () => {
+        if (!token || courseExerciseId == null) {
+            setModalErrorMsg('No se pudo anular la entrega.');
+            setShowErrorModal(true);
+            return;
+        }
+
+        setSubmitting(true);
+
+        try {
+            const res = await fetch(
+                `${API_BASE}/submissions/course-exercises/${courseExerciseId}/cancel`,
+                {
+                    method: 'DELETE',
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                    },
+                }
+            );
+
+            if (!res.ok) {
+                const text = await res.text();
+                console.error('Error anulando entrega:', text);
+                setModalErrorMsg(text || 'No se pudo anular la entrega.');
+                setShowErrorModal(true);
+                return;
+            }
+
+            // Actualizamos estado local
+            setStudentStatus((prev) =>
+                prev
+                    ? {
+                          ...prev,
+                          status: 'PENDING',
+                          submitted_at: null,
+                      }
+                    : prev
+            );
+
+            setSuccessMsg('Entrega anulada correctamente.');
+        } catch (err) {
+            console.error('Error de red al anular entrega:', err);
+            setModalErrorMsg('Error de red al anular la entrega.');
+            setShowErrorModal(true);
         } finally {
             setSubmitting(false);
         }
@@ -505,26 +526,85 @@ useEffect(() => {
                         </p>
                     )}
 
-                    {errorMsg && (
-                        <p className="p-error text-sm mb-2">{errorMsg}</p>
-                    )}
                     {successMsg && (
                         <p className="text-green-600 text-sm mb-2">
                             {successMsg}
                         </p>
                     )}
 
-                    <Button
-                        label="Enviar entrega"
-                        icon="pi pi-upload"
-                        className="w-full mt-2"
-                        onClick={handleSubmit}
-                        loading={submitting}
-                    />
+                    {studentStatus.status === 'DONE' ? (
+                        <div className="flex flex-column gap-2">
+                            <Button
+                                label="Cambiar audio"
+                                icon="pi pi-upload"
+                                className="w-full"
+                                onClick={handleSubmit}
+                                loading={submitting}
+                                disabled={!file}
+                            />
+                            <Button
+                                label="Anular entrega"
+                                icon="pi pi-times"
+                                className="w-full p-button-danger p-button-outlined"
+                                onClick={handleCancelSubmission}
+                                loading={submitting}
+                            />
+                        </div>
+                    ) : (
+                        <Button
+                            label="Enviar entrega"
+                            icon="pi pi-upload"
+                            className="w-full mt-2"
+                            onClick={handleSubmit}
+                            loading={submitting}
+                        />
+                    )}
                 </div>
             </div>
 
-            {/* Modal de error genérico */}
+            {/* Modal de éxito */}
+            <Dialog
+                header="¡Entrega enviada!"
+                visible={showSuccessModal}
+                modal
+                style={{ width: '26rem', maxWidth: '95vw' }}
+                onHide={() => setShowSuccessModal(false)}
+            >
+                <div className="flex flex-column align-items-center gap-3 py-3">
+                    <i className="pi pi-check-circle text-green-500" style={{ fontSize: '3rem' }} />
+                    <p className="text-center m-0">
+                        Tu entrega ha sido enviada correctamente. El terapeuta podrá revisarla pronto.
+                    </p>
+                    <Button
+                        label="Entendido"
+                        className="w-full"
+                        onClick={() => setShowSuccessModal(false)}
+                    />
+                </div>
+            </Dialog>
+
+            {/* Modal de error */}
+            <Dialog
+                header="Error al enviar"
+                visible={showErrorModal}
+                modal
+                style={{ width: '26rem', maxWidth: '95vw' }}
+                onHide={() => setShowErrorModal(false)}
+            >
+                <div className="flex flex-column align-items-center gap-3 py-3">
+                    <i className="pi pi-times-circle text-red-500" style={{ fontSize: '3rem' }} />
+                    <p className="text-center m-0">
+                        {modalErrorMsg}
+                    </p>
+                    <Button
+                        label="Cerrar"
+                        className="w-full p-button-outlined"
+                        onClick={() => setShowErrorModal(false)}
+                    />
+                </div>
+            </Dialog>
+
+            {/* Modal de error genérico (no usado ahora) */}
             <Dialog
                 header="Error"
                 visible={!!errorMsg && !submitting}
