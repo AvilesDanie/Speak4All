@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     openai_tts_model: str = "gpt-4o-mini-tts"
     tts_voice_name: str = "coral"
 
+    # === Google Cloud Storage ===
+    google_application_credentials: str
+    gcp_bucket_name: str
+
     # === Audio ===
     audio_rate: int = 44100
     bitrate: str = "192k"

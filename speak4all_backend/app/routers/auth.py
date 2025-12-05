@@ -140,6 +140,11 @@ def login_google(
             full_name=full_name,
             role=payload.role,
         )
+        
+        # Si se proporciona contraseña, guardarla
+        if payload.password:
+            user.password_hash = hash_password(payload.password)
+        
         db.add(user)
         db.commit()
         db.refresh(user)

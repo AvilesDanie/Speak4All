@@ -5,6 +5,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
 import logging
+from app.services.storage import upload_local_file
+import shutil
 
 logger = logging.getLogger(__name__)
 load_dotenv()
@@ -223,8 +225,10 @@ def build_audio_from_marked_text(marked_text: str, base_dir: Path | None = None)
     """
     Genera el mp3 a partir del guion marcado con [REP].
 
-    Devuelve una ruta **relativa a media/** (por ejemplo "exercises/tts_build_.../exercise_....mp3")
-    para guardar en la base de datos.
+    Ahora:
+    - Genera el audio en una carpeta temporal dentro de media/exercises.
+    - Sube el MP3 final a Google Cloud Storage.
+    - Devuelve el blob_name en GCS (ej: "exercises/tts_build_YYYYMMDD_HHMMSS/exercise_....mp3").
     """
     if base_dir is None:
         base_dir = Path.cwd()
@@ -234,10 +238,11 @@ def build_audio_from_marked_text(marked_text: str, base_dir: Path | None = None)
     logger.info(f"Texto dividido en {len(segments)} segmentos")
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    # Guardar dentro de media/exercises/
+
+    # Carpeta de trabajo local temporal (sigue siendo media/exercises)
     media_dir = base_dir / "media" / "exercises"
     media_dir.mkdir(parents=True, exist_ok=True)
-    
+
     workdir = media_dir / f"tts_build_{ts}"
     tmp = workdir / "tmp"
     tmp.mkdir(parents=True, exist_ok=True)
@@ -265,8 +270,15 @@ def build_audio_from_marked_text(marked_text: str, base_dir: Path | None = None)
     out_mp3 = workdir / f"exercise_{ts}_marcado_con_pausas.mp3"
     concat_to_mp3(norm, out_mp3)
 
-    # devolvemos ruta relativa a media/ (sin incluir media/ en el string)
-    media_base = base_dir / "media"
-    rel_path = out_mp3.relative_to(media_base)
-    logger.info(f"Audio generado exitosamente: {rel_path}")
-    return str(rel_path.as_posix())
+    # === NUEVO: subir a GCS ===
+    blob_name = f"exercises/tts_build_{ts}/{out_mp3.name}"
+    upload_local_file(out_mp3, blob_name, content_type="audio/mpeg")
+
+    # (Opcional pero recomendable): limpiar la carpeta local
+    try:
+        shutil.rmtree(workdir)
+    except Exception as e:
+        logger.warning(f"No se pudo borrar carpeta temporal {workdir}: {e}")
+
+    logger.info(f"Audio generado y subido a GCS: {blob_name}")
+    return blob_name

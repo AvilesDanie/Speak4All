@@ -276,6 +276,7 @@ def list_my_exercises_status(
         s = subs_map.get(ce.id)
         status = s.status if s else models.SubmissionStatus.PENDING
         submitted_at = s.updated_at if s else None
+        has_audio = bool(s.audio_path) if s else False
 
         result.append(
             schemas.StudentExerciseStatus(
@@ -284,6 +285,7 @@ def list_my_exercises_status(
                 due_date=ce.due_date,
                 status=status,
                 submitted_at=submitted_at,
+                has_audio=has_audio,
             )
         )
 

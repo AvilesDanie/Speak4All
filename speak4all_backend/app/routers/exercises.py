@@ -1,14 +1,18 @@
 # app/routers/exercises.py
 from datetime import datetime, timezone
 from pathlib import Path
+import io
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from .. import models, schemas
 from ..deps import get_current_user
 from ..services import ai_exercises  # 👈 hay que exponer el módulo en __init__.py de services
+from ..services.storage import generate_signed_url, download_blob
+from ..services.pdf_generator import generate_exercise_pdf, upload_exercise_pdf_to_storage
 
 router = APIRouter()
 
@@ -226,3 +230,246 @@ def delete_exercise(
 
     db.commit()
     return
+
+
+@router.get("/{exercise_id}/audio-url", response_model=dict)
+def get_exercise_audio_url(
+    exercise_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Obtiene una URL firmada temporal para el audio de un ejercicio.
+    Accesible por terapeutas (propietarios) y estudiantes (inscritos en curso con el ejercicio).
+    """
+    exercise = db.query(models.Exercise).filter(
+        models.Exercise.id == exercise_id,
+        models.Exercise.is_deleted.is_(False),
+    ).first()
+
+    if not exercise:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Ejercicio no encontrado."
+        )
+
+    # Verificar permisos según el rol
+    if current_user.role == models.UserRole.THERAPIST:
+        # El terapeuta debe ser el propietario
+        if exercise.therapist_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permiso para acceder a este ejercicio."
+            )
+    elif current_user.role == models.UserRole.STUDENT:
+        # El estudiante debe estar inscrito en un curso que contenga este ejercicio
+        course_exercise = db.query(models.CourseExercise).join(
+            models.Course
+        ).join(
+            models.CourseStudent
+        ).filter(
+            models.CourseExercise.exercise_id == exercise_id,
+            models.CourseStudent.student_id == current_user.id,
+            models.CourseExercise.is_deleted.is_(False),
+            models.Course.deleted_at.is_(None),
+        ).first()
+
+        if not course_exercise:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No estás inscrito en ningún curso que contenga este ejercicio."
+            )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Rol no permitido."
+        )
+
+    if not exercise.audio_path:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Este ejercicio no tiene audio."
+        )
+
+    url = generate_signed_url(exercise.audio_path, minutes=60)
+    return {"url": url}
+
+
+@router.get("/{exercise_id}/audio-download")
+def download_exercise_audio(
+    exercise_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Descarga el archivo de audio de un ejercicio.
+    El archivo se sirve directamente desde el backend para evitar problemas de CORS.
+    
+    Accesible por:
+    - Terapeutas propietarios del ejercicio
+    - Estudiantes inscritos en un curso que contenga el ejercicio
+    """
+    exercise = db.query(models.Exercise).filter(
+        models.Exercise.id == exercise_id,
+        models.Exercise.is_deleted.is_(False),
+    ).first()
+
+    if not exercise:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Ejercicio no encontrado."
+        )
+
+    # Verificar permisos según el rol
+    if current_user.role == models.UserRole.THERAPIST:
+        # El terapeuta debe ser el propietario
+        if exercise.therapist_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permiso para acceder a este ejercicio."
+            )
+    elif current_user.role == models.UserRole.STUDENT:
+        # El estudiante debe estar inscrito en un curso que contenga este ejercicio
+        course_exercise = db.query(models.CourseExercise).join(
+            models.Course
+        ).join(
+            models.CourseStudent
+        ).filter(
+            models.CourseExercise.exercise_id == exercise_id,
+            models.CourseStudent.student_id == current_user.id,
+            models.CourseExercise.is_deleted.is_(False),
+            models.Course.deleted_at.is_(None),
+        ).first()
+
+        if not course_exercise:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No estás inscrito en ningún curso que contenga este ejercicio."
+            )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Rol no permitido."
+        )
+
+    if not exercise.audio_path:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Este ejercicio no tiene audio."
+        )
+
+    try:
+        # Descargar el archivo de audio desde Google Cloud Storage
+        audio_bytes = download_blob(exercise.audio_path)
+        
+        # Crear un stream para enviar el archivo
+        audio_stream = io.BytesIO(audio_bytes)
+        
+        # Extraer nombre del archivo para la descarga
+        filename = exercise.audio_path.split('/')[-1]
+        
+        return StreamingResponse(
+            audio_stream,
+            media_type="audio/mpeg",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}"
+            }
+        )
+    except Exception as e:
+        import logging
+        logging.error(f"Error descargando audio del ejercicio {exercise_id}: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al descargar el audio."
+        )
+
+
+@router.get("/{exercise_id}/pdf-url", response_model=dict)
+def get_exercise_pdf_url(
+    exercise_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Genera y retorna una URL firmada temporal para descargar el PDF de un ejercicio.
+    El PDF se genera sobre la marcha y se almacena en Google Cloud Storage.
+    
+    Accesible por:
+    - Terapeutas propietarios del ejercicio
+    - Estudiantes inscritos en un curso que contenga el ejercicio
+    """
+    exercise = db.query(models.Exercise).filter(
+        models.Exercise.id == exercise_id,
+        models.Exercise.is_deleted.is_(False),
+    ).first()
+
+    if not exercise:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Ejercicio no encontrado."
+        )
+
+    # Verificar permisos según el rol
+    if current_user.role == models.UserRole.THERAPIST:
+        # El terapeuta debe ser el propietario
+        if exercise.therapist_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permiso para acceder a este ejercicio."
+            )
+    elif current_user.role == models.UserRole.STUDENT:
+        # El estudiante debe estar inscrito en un curso que contenga este ejercicio
+        course_exercise = db.query(models.CourseExercise).join(
+            models.Course
+        ).join(
+            models.CourseStudent
+        ).filter(
+            models.CourseExercise.exercise_id == exercise_id,
+            models.CourseStudent.student_id == current_user.id,
+            models.CourseExercise.is_deleted.is_(False),
+            models.Course.deleted_at.is_(None),
+        ).first()
+
+        if not course_exercise:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No estás inscrito en ningún curso que contenga este ejercicio."
+            )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Rol no permitido."
+        )
+
+    try:
+        # Generar URL del audio para el QR
+        audio_url = None
+        if exercise.audio_path:
+            audio_url = generate_signed_url(exercise.audio_path, minutes=60)
+        
+        # Generar PDF
+        pdf_bytes = generate_exercise_pdf(
+            exercise_name=exercise.name,
+            exercise_text=exercise.text,
+            exercise_prompt=exercise.prompt,
+            audio_url=audio_url,
+        )
+        
+        # Subir a Google Cloud Storage
+        pdf_blob_name = upload_exercise_pdf_to_storage(
+            pdf_bytes=pdf_bytes,
+            exercise_id=exercise.id,
+            exercise_name=exercise.name,
+        )
+        
+        # Generar URL firmada con disposición de descarga
+        pdf_url = generate_signed_url(pdf_blob_name, minutes=60, response_disposition='attachment')
+        
+        return {"url": pdf_url}
+    except Exception as e:
+        import logging
+        logging.error(f"Error generando PDF para ejercicio {exercise_id}: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al descargar el PDF."
+        )

@@ -1,12 +1,17 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Button } from 'primereact/button';
 import { TabMenu } from 'primereact/tabmenu';
 import { Tag } from 'primereact/tag';
 import { ProgressBar } from 'primereact/progressbar';
 import { Dialog } from 'primereact/dialog';
+import { InputText } from 'primereact/inputtext';
+import { InputNumber } from 'primereact/inputnumber';
+import { Calendar } from 'primereact/calendar';
+import { Dropdown } from 'primereact/dropdown';
+import { Paginator, PaginatorPageChangeEvent } from 'primereact/paginator';
 import PublishExerciseDialog from './PublishExerciseDialog';
 import AudioPlayer from '../../exercises/AudioPlayer';
 import { API_BASE } from '@/services/apiClient';
@@ -30,6 +35,7 @@ import {
 } from '@/services/courses';
 import { BackendUser } from '@/services/auth';
 import { useWebSocket, WebSocketMessage } from '@/hooks/useWebSocket';
+import { useExerciseNotifications } from '@/contexts/ExerciseNotificationContext';
 
 const AUDIO_BASE_URL = API_BASE;
 
@@ -57,7 +63,7 @@ interface SubmissionOut {
     created_at: string;
     updated_at: string;
 }
-
+ 
 interface SubmissionDetailOut {
     submission: SubmissionOut;
     student: {
@@ -114,47 +120,168 @@ const CoursePage: React.FC = () => {
     const [exerciseToDelete, setExerciseToDelete] = useState<CourseExercise | null>(null);
     const [deletingExercise, setDeletingExercise] = useState(false);
 
+    // Paginación y filtros - Pestaña Estudiantes (tarjetas)
+    const [studentsPage, setStudentsPage] = useState(0);
+    const [studentsPageSize, setStudentsPageSize] = useState(10);
+    const [studentsNameFilter, setStudentsNameFilter] = useState('');
+    const [studentsProgressMin, setStudentsProgressMin] = useState<number | null>(null);
+    const [studentsProgressMax, setStudentsProgressMax] = useState<number | null>(null);
+    const [studentsLastSubmissionFrom, setStudentsLastSubmissionFrom] = useState<Date | null>(null);
+    const [studentsLastSubmissionTo, setStudentsLastSubmissionTo] = useState<Date | null>(null);
+
+    // Paginación y filtros - Pestaña Ejercicios Terapeuta
+    const [therapistExercisesPage, setTherapistExercisesPage] = useState(0);
+    const [therapistExercisesPageSize, setTherapistExercisesPageSize] = useState(10);
+    const [therapistExercisesNameFilter, setTherapistExercisesNameFilter] = useState('');
+    const [therapistExercisesTextFilter, setTherapistExercisesTextFilter] = useState('');
+    const [therapistExercisesPublishedFrom, setTherapistExercisesPublishedFrom] = useState<Date | null>(null);
+    const [therapistExercisesPublishedTo, setTherapistExercisesPublishedTo] = useState<Date | null>(null);
+
+    // Paginación y filtros - Pestaña Progreso (tabla)
+    const [progressPage, setProgressPage] = useState(0);
+    const [progressPageSize, setProgressPageSize] = useState(10);
+    const [progressNameFilter, setProgressNameFilter] = useState('');
+    const [progressEmailFilter, setProgressEmailFilter] = useState('');
+    const [progressMin, setProgressMin] = useState<number | null>(null);
+    const [progressMax, setProgressMax] = useState<number | null>(null);
+    const [progressLastSubmissionFrom, setProgressLastSubmissionFrom] = useState<Date | null>(null);
+    const [progressLastSubmissionTo, setProgressLastSubmissionTo] = useState<Date | null>(null);
+
+    // Paginación y filtros - Ejercicios Estudiante
+    const [studentExercisesPage, setStudentExercisesPage] = useState(0);
+    const [studentExercisesPageSize, setStudentExercisesPageSize] = useState(10);
+    const [studentExercisesNameFilter, setStudentExercisesNameFilter] = useState('');
+    const [studentExercisesTextFilter, setStudentExercisesTextFilter] = useState('');
+    const [studentExercisesPublishedFrom, setStudentExercisesPublishedFrom] = useState<Date | null>(null);
+    const [studentExercisesPublishedTo, setStudentExercisesPublishedTo] = useState<Date | null>(null);
+    const [studentExercisesWithAudio, setStudentExercisesWithAudio] = useState<'all' | 'with' | 'without'>('all');
+
+    // Estados para mostrar/ocultar filtros
+    const [showStudentsFilters, setShowStudentsFilters] = useState(true);
+    const [showTherapistExercisesFilters, setShowTherapistExercisesFilters] = useState(true);
+    const [showProgressFilters, setShowProgressFilters] = useState(true);
+    const [showStudentExercisesFilters, setShowStudentExercisesFilters] = useState(true);
+
     const showError = (msg: string) => setErrorMsg(msg);
 
+    // Debounce para recargar progreso
+    const progressReloadTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+    const reloadProgressWithDebounce = useCallback((authToken: string, courseId: number) => {
+        if (progressReloadTimeoutRef.current) {
+            clearTimeout(progressReloadTimeoutRef.current);
+        }
+
+        progressReloadTimeoutRef.current = setTimeout(async () => {
+            try {
+                console.log('Reloading progress for course:', courseId);
+                const data = await getCourseStudentsProgress(authToken, courseId);
+                console.log('Progress reloaded:', data);
+                setProgressList(data);
+            } catch (err) {
+                console.error('Error reloading progress:', err);
+            }
+        }, 500);
+    }, []);
+
     // WebSocket connection for real-time updates
+    const { addNotification, triggerRefresh } = useExerciseNotifications();
+    const roleRef = useRef(role);
+    const courseRef = useRef(course);
+    
+    // Keep refs in sync
+    useEffect(() => {
+        roleRef.current = role;
+        courseRef.current = course;
+    }, [role, course]);
+    
     const handleWebSocketMessage = useCallback((message: WebSocketMessage) => {
-        console.log('Received WebSocket message:', message);
+        console.log('Received WebSocket message:', message, { role: roleRef.current, courseId: courseRef.current?.id, hasToken: !!token });
 
         switch (message.type) {
             case 'exercise_published':
                 // Add new exercise to list
-                if (message.data && !exercises.some(ex => ex.id === message.data.id)) {
-                    setExercises(prev => [message.data, ...prev]);
+                if (message.data) {
+                    console.log('Exercise published, current role:', roleRef.current, 'course:', courseRef.current?.id);
+                    setExercises(prev => {
+                        if (prev.some(ex => ex.id === message.data.id)) {
+                            return prev;
+                        }
+                        return [message.data, ...prev];
+                    });
+                    
+                    // Notify students
+                    if (roleRef.current === 'STUDENT' && courseRef.current) {
+                        console.log('Showing notification to student, adding notification...');
+                        addNotification({
+                            courseId: courseRef.current.id,
+                            courseName: message.data.course_name,
+                            exerciseName: message.data.exercise_name || message.data.name || 'Nuevo ejercicio',
+                            therapistName: message.data.therapist_name,
+                            summary: 'Nuevo ejercicio',
+                            detail: `${message.data.therapist_name || 'El terapeuta'} ha publicado "${message.data.exercise_name || message.data.name || 'Nuevo ejercicio'}" en el curso "${message.data.course_name || 'Curso'}"`,
+                        });
+                        console.log('Triggering refresh...');
+                        triggerRefresh(courseRef.current.id);
+                    } else {
+                        console.log('Not showing notification - role:', roleRef.current, 'course:', courseRef.current?.id);
+                    }
                 }
                 break;
 
             case 'exercise_deleted':
-                // Remove exercise from list
+                // Remove exercise from list and notify
                 if (message.data?.course_exercise_id) {
                     setExercises(prev => prev.filter(ex => ex.id !== message.data.course_exercise_id));
+
+                    // Keep student exercise list in sync immediately
+                    if (roleRef.current === 'STUDENT') {
+                        setStudentExercises(prev =>
+                            prev.filter((ex) => ex.course_exercise_id !== message.data.course_exercise_id)
+                        );
+                    }
+
+                    // Notify students
+                    if (roleRef.current === 'STUDENT' && courseRef.current) {
+                        console.log('Exercise deleted, notifying student...');
+                        addNotification({
+                            courseId: courseRef.current.id,
+                            courseName: message.data.course_name,
+                            exerciseName: message.data.exercise_name || message.data.name || 'Ejercicio',
+                            therapistName: message.data.therapist_name,
+                            summary: 'Ejercicio eliminado',
+                            detail: `${message.data.therapist_name || 'El terapeuta'} eliminó "${message.data.exercise_name || 'Ejercicio'}" del curso "${message.data.course_name || 'Curso'}"`,
+                            severity: 'warn',
+                        });
+                        triggerRefresh(courseRef.current.id);
+                    }
                 }
                 break;
 
             case 'submission_created':
             case 'submission_updated':
+            case 'submission_deleted':
                 // Reload progress data for therapists
-                if (role === 'THERAPIST' && course) {
-                    getCourseStudentsProgress(token!, course.id)
-                        .then(setProgressList)
+                if (roleRef.current === 'THERAPIST' && courseRef.current && token) {
+                    console.log('Submission event detected, reloading progress...');
+                    reloadProgressWithDebounce(token, courseRef.current.id);
+                    // También recargar la lista de estudiantes para refrescar barra y última entrega
+                    getCourseStudents(token, courseRef.current.id)
+                        .then(setStudents)
                         .catch(console.error);
                 }
                 // Reload student exercises for students
-                if (role === 'STUDENT' && course) {
-                    getStudentExercisesForCourse(token!, course.id)
+                if (roleRef.current === 'STUDENT' && courseRef.current && token) {
+                    getStudentExercisesForCourse(token, courseRef.current.id)
                         .then(setStudentExercises)
                         .catch(console.error);
                 }
                 break;
 
             case 'student_joined':
-                // Add new student to list
-                if (message.data && role === 'THERAPIST') {
-                    getCourseStudents(token!, course!.id)
+                // Reload students list
+                if (roleRef.current === 'THERAPIST' && courseRef.current && token) {
+                    getCourseStudents(token, courseRef.current.id)
                         .then(setStudents)
                         .catch(console.error);
                 }
@@ -169,12 +296,15 @@ const CoursePage: React.FC = () => {
 
             case 'join_request':
                 // Add new join request
-                if (message.data && role === 'THERAPIST') {
-                    setJoinRequests(prev => [message.data, ...prev]);
+                if (message.data && roleRef.current === 'THERAPIST' && token && courseRef.current) {
+                    // Reload join requests instead of manually adding
+                    getCourseJoinRequests(token, courseRef.current.id)
+                        .then(setJoinRequests)
+                        .catch(console.error);
                 }
                 break;
         }
-    }, [exercises, role, course, token]);
+    }, [token, reloadProgressWithDebounce, addNotification, triggerRefresh]);
 
     const { isConnected } = useWebSocket({
         courseId: course?.id || null,
@@ -182,6 +312,39 @@ const CoursePage: React.FC = () => {
         onMessage: handleWebSocketMessage,
         enabled: !!course && !!token,
     });
+
+    // Listen for refresh triggers (e.g., new exercise published)
+    const { refreshTrigger } = useExerciseNotifications();
+    
+    useEffect(() => {
+        if (!refreshTrigger || !courseRef.current || !token) return;
+
+        // Only reload if the refresh is for this course
+        if (refreshTrigger.courseId !== courseRef.current.id) return;
+
+        console.log('Refresh triggered for course:', refreshTrigger.courseId, 'current role:', roleRef.current);
+
+        // Reload exercises for students (full list + status list)
+        if (roleRef.current === 'STUDENT') {
+            setLoadingExercises(true);
+            setLoadingStudentExercises(true);
+
+            Promise.all([
+                getCourseExercises(token, courseRef.current.id),
+                getStudentExercisesForCourse(token, courseRef.current.id),
+            ])
+                .then(([data, studentData]) => {
+                    console.log('Reloaded exercises for student:', data);
+                    setExercises(data.filter((ce) => !ce.is_deleted));
+                    setStudentExercises(studentData);
+                })
+                .catch(console.error)
+                .finally(() => {
+                    setLoadingExercises(false);
+                    setLoadingStudentExercises(false);
+                });
+        }
+    }, [refreshTrigger, token]);
 
     const handleCopyCode = async () => {
         if (!course?.join_code) return;
@@ -453,69 +616,257 @@ const CoursePage: React.FC = () => {
                 </p>
             );
 
+        // Filtrar estudiantes
+        let filteredStudents = students.filter((s) => {
+            // Filtro por nombre
+            if (studentsNameFilter && !s.student_name.toLowerCase().includes(studentsNameFilter.toLowerCase())) {
+                return false;
+            }
+
+            // Filtro por progreso
+            const total = s.total_exercises || 0;
+            const done = s.completed_exercises || 0;
+            const percent = total ? Math.round((done / total) * 100) : 0;
+            
+            if (studentsProgressMin !== null && percent < studentsProgressMin) {
+                return false;
+            }
+            if (studentsProgressMax !== null && percent > studentsProgressMax) {
+                return false;
+            }
+
+            // Filtro por fecha de última entrega
+            if (s.last_submission_at) {
+                const submissionDate = new Date(s.last_submission_at);
+                if (studentsLastSubmissionFrom && submissionDate < studentsLastSubmissionFrom) {
+                    return false;
+                }
+                if (studentsLastSubmissionTo && submissionDate > studentsLastSubmissionTo) {
+                    return false;
+                }
+            }
+
+            return true;
+        });
+
+        // Paginación
+        const totalStudents = filteredStudents.length;
+        const startIndex = studentsPage * studentsPageSize;
+        const endIndex = startIndex + studentsPageSize;
+        const paginatedStudents = filteredStudents.slice(startIndex, endIndex);
+
         return (
-            <div className="grid">
-                {students.map((s) => {
-                    const total = s.total_exercises || 0;
-                    const done = s.completed_exercises || 0;
-                    const percent = total ? Math.round((done / total) * 100) : 0;
+            <>
+                {/* Botón toggle filtros */}
+                <div className="flex justify-content-end mb-2">
+                    <Button
+                        label={showStudentsFilters ? 'Ocultar filtros' : 'Mostrar filtros'}
+                        icon={showStudentsFilters ? 'pi pi-eye-slash' : 'pi pi-filter'}
+                        className="p-button-text p-button-sm"
+                        onClick={() => setShowStudentsFilters(!showStudentsFilters)}
+                    />
+                </div>
 
-                    return (
-                        <div key={s.course_student_id} className="col-12 md:col-6">
-                            <div className="card flex flex-column gap-2">
-                                <div className="flex justify-content-between align-items-center">
-                                    <div>
-                                        <h4 className="m-0 text-base font-semibold">
-                                            {s.student_name}
-                                        </h4>
-                                        <p className="m-0 text-600 text-sm">
-                                            ID estudiante: {s.student_id}
-                                        </p>
+                {/* Filtros */}
+                {showStudentsFilters && (
+                    <div className="card mb-3">
+                        <h4 className="text-base font-semibold mb-3">Filtros</h4>
+                        <div className="grid">
+                        <div className="col-12 md:col-3">
+                            <label className="block text-sm font-medium mb-2">Nombre</label>
+                            <InputText
+                                value={studentsNameFilter}
+                                onChange={(e) => {
+                                    setStudentsNameFilter(e.target.value);
+                                    setStudentsPage(0);
+                                }}
+                                placeholder="Buscar por nombre"
+                                className="w-full"
+                            />
+                        </div>
+                        <div className="col-12 md:col-2">
+                            <label className="block text-sm font-medium mb-2">Progreso mín (%)</label>
+                            <InputNumber
+                                value={studentsProgressMin}
+                                onValueChange={(e) => {
+                                    setStudentsProgressMin(e.value ?? null);
+                                    setStudentsPage(0);
+                                }}
+                                placeholder="0"
+                                min={0}
+                                max={100}
+                                className="w-full"
+                            />
+                        </div>
+                        <div className="col-12 md:col-2">
+                            <label className="block text-sm font-medium mb-2">Progreso máx (%)</label>
+                            <InputNumber
+                                value={studentsProgressMax}
+                                onValueChange={(e) => {
+                                    setStudentsProgressMax(e.value ?? null);
+                                    setStudentsPage(0);
+                                }}
+                                placeholder="100"
+                                min={0}
+                                max={100}
+                                className="w-full"
+                            />
+                        </div>
+                        <div className="col-12 md:col-2">
+                            <label className="block text-sm font-medium mb-2">Última entrega desde</label>
+                            <Calendar
+                                value={studentsLastSubmissionFrom}
+                                onChange={(e) => {
+                                    setStudentsLastSubmissionFrom(e.value as Date | null);
+                                    setStudentsPage(0);
+                                }}
+                                showIcon
+                                dateFormat="dd/mm/yy"
+                                placeholder="Fecha inicial"
+                                className="w-full"
+                            />
+                        </div>
+                        <div className="col-12 md:col-2">
+                            <label className="block text-sm font-medium mb-2">Última entrega hasta</label>
+                            <Calendar
+                                value={studentsLastSubmissionTo}
+                                onChange={(e) => {
+                                    setStudentsLastSubmissionTo(e.value as Date | null);
+                                    setStudentsPage(0);
+                                }}
+                                showIcon
+                                dateFormat="dd/mm/yy"
+                                placeholder="Fecha final"
+                                className="w-full"
+                            />
+                        </div>
+                        <div className="col-12 md:col-1 flex align-items-end">
+                            <Button
+                                label="Limpiar"
+                                icon="pi pi-filter-slash"
+                                className="p-button-text"
+                                onClick={() => {
+                                    setStudentsNameFilter('');
+                                    setStudentsProgressMin(null);
+                                    setStudentsProgressMax(null);
+                                    setStudentsLastSubmissionFrom(null);
+                                    setStudentsLastSubmissionTo(null);
+                                    setStudentsPage(0);
+                                }}
+                            />
+                        </div>
+                    </div>
+                </div>
+                )}
+
+                <div className="grid">
+                    {paginatedStudents.map((s) => {
+                        const total = s.total_exercises || 0;
+                        const done = s.completed_exercises || 0;
+                        const percent = total ? Math.round((done / total) * 100) : 0;
+
+                        return (
+                            <div key={s.course_student_id} className="col-12 md:col-6">
+                                <div className="card flex flex-column gap-2">
+                                    <div className="flex justify-content-between align-items-center">
+                                        <div>
+                                            <h4 className="m-0 text-base font-semibold">
+                                                {s.student_name}
+                                            </h4>
+                                            <p className="m-0 text-600 text-sm">
+                                                ID estudiante: {s.student_id}
+                                            </p>
+                                        </div>
+                                        <Tag
+                                            value={`${done}/${total}`}
+                                            severity={
+                                                percent >= 70
+                                                    ? 'success'
+                                                    : percent >= 40
+                                                        ? 'warning'
+                                                        : 'danger'
+                                            }
+                                        />
                                     </div>
-                                    <Tag
-                                        value={`${done}/${total}`}
-                                        severity={
-                                            percent >= 70
-                                                ? 'success'
-                                                : percent >= 40
-                                                    ? 'warning'
-                                                    : 'danger'
-                                        }
-                                    />
-                                </div>
 
-                                <ProgressBar value={percent} showValue={false} />
+                                    <ProgressBar value={percent} showValue={false} />
 
-                                <p className="m-0 text-600 text-sm">
-                                    Última entrega:{' '}
-                                    {s.last_submission_at
-                                        ? new Date(
-                                            s.last_submission_at
-                                        ).toLocaleString()
-                                        : 'Sin entregas aún'}
-                                </p>
+                                    <p className="m-0 text-600 text-sm">
+                                        Última entrega:{' '}
+                                        {s.last_submission_at
+                                            ? new Date(
+                                                s.last_submission_at
+                                            ).toLocaleString()
+                                            : 'Sin entregas aún'}
+                                    </p>
 
-                                <div className="flex justify-content-end mt-2">
-                                    <Button
-                                        icon="pi pi-user-minus"
-                                        className="p-button-text p-button-danger"
-                                        label="Eliminar del curso"
-                                        onClick={() =>
-                                            removeStudent(s.course_student_id)
-                                        }
-                                    />
+                                    <div className="flex justify-content-end mt-2">
+                                        <Button
+                                            icon="pi pi-user-minus"
+                                            className="p-button-text p-button-danger"
+                                            label="Eliminar del curso"
+                                            onClick={() =>
+                                                removeStudent(s.course_student_id)
+                                            }
+                                        />
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    );
-                })}
-            </div>
+                        );
+                    })}
+                </div>
+
+                {/* Paginación */}
+                <Paginator
+                    first={studentsPage * studentsPageSize}
+                    rows={studentsPageSize}
+                    totalRecords={totalStudents}
+                    rowsPerPageOptions={[5, 10, 20, 50]}
+                    onPageChange={(e: PaginatorPageChangeEvent) => {
+                        setStudentsPage(e.page);
+                        setStudentsPageSize(e.rows);
+                    }}
+                    className="mt-3"
+                />
+            </>
         );
     };
 
     const renderTherapistExercisesTab = () => {
         if (role !== 'THERAPIST') return null;
         if (loadingExercises) return <p>Cargando ejercicios...</p>;
+
+        // Filtrar ejercicios
+        let filteredExercises = exercises.filter((ce) => {
+            // Filtro por nombre
+            if (therapistExercisesNameFilter && !ce.exercise?.name?.toLowerCase().includes(therapistExercisesNameFilter.toLowerCase())) {
+                return false;
+            }
+
+            // Filtro por texto
+            if (therapistExercisesTextFilter && !ce.exercise?.text?.toLowerCase().includes(therapistExercisesTextFilter.toLowerCase())) {
+                return false;
+            }
+
+            // Filtro por fecha de publicación
+            if (ce.published_at) {
+                const publishedDate = new Date(ce.published_at);
+                if (therapistExercisesPublishedFrom && publishedDate < therapistExercisesPublishedFrom) {
+                    return false;
+                }
+                if (therapistExercisesPublishedTo && publishedDate > therapistExercisesPublishedTo) {
+                    return false;
+                }
+            }
+
+            return true;
+        });
+
+        // Paginación
+        const totalExercises = filteredExercises.length;
+        const startIndex = therapistExercisesPage * therapistExercisesPageSize;
+        const endIndex = startIndex + therapistExercisesPageSize;
+        const paginatedExercises = filteredExercises.slice(startIndex, endIndex);
 
         return (
             <>
@@ -535,13 +886,100 @@ const CoursePage: React.FC = () => {
                     </div>
                 </div>
 
-                {!exercises.length ? (
+                {/* Botón toggle filtros */}
+                <div className="flex justify-content-end mb-2">
+                    <Button
+                        label={showTherapistExercisesFilters ? 'Ocultar filtros' : 'Mostrar filtros'}
+                        icon={showTherapistExercisesFilters ? 'pi pi-eye-slash' : 'pi pi-filter'}
+                        className="p-button-text p-button-sm"
+                        onClick={() => setShowTherapistExercisesFilters(!showTherapistExercisesFilters)}
+                    />
+                </div>
+
+                {/* Filtros */}
+                {showTherapistExercisesFilters && (
+                    <div className="card mb-3">
+                        <h4 className="text-base font-semibold mb-3">Filtros</h4>
+                    <div className="grid">
+                        <div className="col-12 md:col-3">
+                            <label className="block text-sm font-medium mb-2">Nombre/Título</label>
+                            <InputText
+                                value={therapistExercisesNameFilter}
+                                onChange={(e) => {
+                                    setTherapistExercisesNameFilter(e.target.value);
+                                    setTherapistExercisesPage(0);
+                                }}
+                                placeholder="Buscar por nombre"
+                                className="w-full"
+                            />
+                        </div>
+                        <div className="col-12 md:col-3">
+                            <label className="block text-sm font-medium mb-2">Texto del ejercicio</label>
+                            <InputText
+                                value={therapistExercisesTextFilter}
+                                onChange={(e) => {
+                                    setTherapistExercisesTextFilter(e.target.value);
+                                    setTherapistExercisesPage(0);
+                                }}
+                                placeholder="Buscar en texto"
+                                className="w-full"
+                            />
+                        </div>
+                        <div className="col-12 md:col-2">
+                            <label className="block text-sm font-medium mb-2">Publicado desde</label>
+                            <Calendar
+                                value={therapistExercisesPublishedFrom}
+                                onChange={(e) => {
+                                    setTherapistExercisesPublishedFrom(e.value as Date | null);
+                                    setTherapistExercisesPage(0);
+                                }}
+                                showIcon
+                                dateFormat="dd/mm/yy"
+                                placeholder="Fecha inicial"
+                                className="w-full"
+                            />
+                        </div>
+                        <div className="col-12 md:col-2">
+                            <label className="block text-sm font-medium mb-2">Publicado hasta</label>
+                            <Calendar
+                                value={therapistExercisesPublishedTo}
+                                onChange={(e) => {
+                                    setTherapistExercisesPublishedTo(e.value as Date | null);
+                                    setTherapistExercisesPage(0);
+                                }}
+                                showIcon
+                                dateFormat="dd/mm/yy"
+                                placeholder="Fecha final"
+                                className="w-full"
+                            />
+                        </div>
+                        <div className="col-12 md:col-2 flex align-items-end">
+                            <Button
+                                label="Limpiar"
+                                icon="pi pi-filter-slash"
+                                className="p-button-text"
+                                onClick={() => {
+                                    setTherapistExercisesNameFilter('');
+                                    setTherapistExercisesTextFilter('');
+                                    setTherapistExercisesPublishedFrom(null);
+                                    setTherapistExercisesPublishedTo(null);
+                                    setTherapistExercisesPage(0);
+                                }}
+                            />
+                        </div>
+                    </div>
+                </div>
+                )}
+
+                {!paginatedExercises.length ? (
                     <p className="text-600">
-                        Aún no se han publicado ejercicios en este curso.
+                        {exercises.length === 0
+                            ? 'Aún no se han publicado ejercicios en este curso.'
+                            : 'No se encontraron ejercicios con los filtros aplicados.'}
                     </p>
                 ) : (
                     <div className="grid">
-                        {exercises.map((ce) => (
+                        {paginatedExercises.map((ce) => (
                             <div key={ce.id} className="col-12 md:col-6">
                                 <div className="card flex flex-column gap-2 h-full">
                                     <div className="flex justify-content-between align-items-start">
@@ -601,6 +1039,21 @@ const CoursePage: React.FC = () => {
                         ))}
                     </div>
                 )}
+
+                {/* Paginación */}
+                {totalExercises > 0 && (
+                    <Paginator
+                        first={therapistExercisesPage * therapistExercisesPageSize}
+                        rows={therapistExercisesPageSize}
+                        totalRecords={totalExercises}
+                        rowsPerPageOptions={[5, 10, 20, 50]}
+                        onPageChange={(e: PaginatorPageChangeEvent) => {
+                            setTherapistExercisesPage(e.page);
+                            setTherapistExercisesPageSize(e.rows);
+                        }}
+                        className="mt-3"
+                    />
+                )}
             </>
         );
     };
@@ -615,128 +1068,282 @@ const CoursePage: React.FC = () => {
                 </p>
             );
 
+        // Filtrar progreso
+        let filteredProgress = progressList.filter((p) => {
+            // Filtro por nombre
+            if (progressNameFilter && !p.full_name.toLowerCase().includes(progressNameFilter.toLowerCase())) {
+                return false;
+            }
+
+            // Filtro por email
+            if (progressEmailFilter && !p.email.toLowerCase().includes(progressEmailFilter.toLowerCase())) {
+                return false;
+            }
+
+            // Filtro por progreso
+            const total = p.total_exercises || 0;
+            const done = p.done_exercises || 0;
+            const percent = total ? Math.round((done / total) * 100) : 0;
+            
+            if (progressMin !== null && percent < progressMin) {
+                return false;
+            }
+            if (progressMax !== null && percent > progressMax) {
+                return false;
+            }
+
+            // Filtro por fecha de última entrega
+            if (p.last_submission_at) {
+                const submissionDate = new Date(p.last_submission_at);
+                if (progressLastSubmissionFrom && submissionDate < progressLastSubmissionFrom) {
+                    return false;
+                }
+                if (progressLastSubmissionTo && submissionDate > progressLastSubmissionTo) {
+                    return false;
+                }
+            }
+
+            return true;
+        });
+
+        // Paginación
+        const totalProgress = filteredProgress.length;
+        const startIndex = progressPage * progressPageSize;
+        const endIndex = startIndex + progressPageSize;
+        const paginatedProgress = filteredProgress.slice(startIndex, endIndex);
+
         return (
-            <div className="card p-0 overflow-auto">
-                <table className="w-full">
-                    <thead>
-                        <tr className="text-left text-sm text-600">
-                            <th className="p-3">Estudiante</th>
-                            <th className="p-3">Email</th>
-                            <th className="p-3">Completados</th>
-                            <th className="p-3">% Avance</th>
-                            <th className="p-3">Última entrega</th>
-                            <th className="p-3 text-right">Acción</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {progressList.map((p) => {
-                            const total = p.total_exercises || 0;
-                            const done = p.done_exercises || 0;
-                            const percent = total
-                                ? Math.round((done / total) * 100)
-                                : 0;
+            <>
+                {/* Botón toggle filtros */}
+                <div className="flex justify-content-end mb-2">
+                    <Button
+                        label={showProgressFilters ? 'Ocultar filtros' : 'Mostrar filtros'}
+                        icon={showProgressFilters ? 'pi pi-eye-slash' : 'pi pi-filter'}
+                        className="p-button-text p-button-sm"
+                        onClick={() => setShowProgressFilters(!showProgressFilters)}
+                    />
+                </div>
 
-                            const severity =
-                                percent >= 70
-                                    ? 'success'
-                                    : percent >= 40
-                                        ? 'warning'
-                                        : 'danger';
+                {/* Filtros */}
+                {showProgressFilters && (
+                    <div className="card mb-3">
+                        <h4 className="text-base font-semibold mb-3">Filtros</h4>
+                    <div className="grid">
+                        <div className="col-12 md:col-3">
+                            <label className="block text-sm font-medium mb-2">Nombre</label>
+                            <InputText
+                                value={progressNameFilter}
+                                onChange={(e) => {
+                                    setProgressNameFilter(e.target.value);
+                                    setProgressPage(0);
+                                }}
+                                placeholder="Buscar por nombre"
+                                className="w-full"
+                            />
+                        </div>
+                        <div className="col-12 md:col-3">
+                            <label className="block text-sm font-medium mb-2">Email</label>
+                            <InputText
+                                value={progressEmailFilter}
+                                onChange={(e) => {
+                                    setProgressEmailFilter(e.target.value);
+                                    setProgressPage(0);
+                                }}
+                                placeholder="Buscar por email"
+                                className="w-full"
+                            />
+                        </div>
+                        <div className="col-12 md:col-1">
+                            <label className="block text-sm font-medium mb-2">Progreso mín (%)</label>
+                            <InputNumber
+                                value={progressMin}
+                                onValueChange={(e) => {
+                                    setProgressMin(e.value ?? null);
+                                    setProgressPage(0);
+                                }}
+                                placeholder="0"
+                                min={0}
+                                max={100}
+                                className="w-full"
+                            />
+                        </div>
+                        <div className="col-12 md:col-1">
+                            <label className="block text-sm font-medium mb-2">Progreso máx (%)</label>
+                            <InputNumber
+                                value={progressMax}
+                                onValueChange={(e) => {
+                                    setProgressMax(e.value ?? null);
+                                    setProgressPage(0);
+                                }}
+                                placeholder="100"
+                                min={0}
+                                max={100}
+                                className="w-full"
+                            />
+                        </div>
+                        <div className="col-12 md:col-2">
+                            <label className="block text-sm font-medium mb-2">Última entrega desde</label>
+                            <Calendar
+                                value={progressLastSubmissionFrom}
+                                onChange={(e) => {
+                                    setProgressLastSubmissionFrom(e.value as Date | null);
+                                    setProgressPage(0);
+                                }}
+                                showIcon
+                                dateFormat="dd/mm/yy"
+                                placeholder="Fecha inicial"
+                                className="w-full"
+                            />
+                        </div>
+                        <div className="col-12 md:col-2">
+                            <label className="block text-sm font-medium mb-2">Última entrega hasta</label>
+                            <Calendar
+                                value={progressLastSubmissionTo}
+                                onChange={(e) => {
+                                    setProgressLastSubmissionTo(e.value as Date | null);
+                                    setProgressPage(0);
+                                }}
+                                showIcon
+                                dateFormat="dd/mm/yy"
+                                placeholder="Fecha final"
+                                className="w-full"
+                            />
+                        </div>
+                        <div className="col-12 flex align-items-end">
+                            <Button
+                                label="Limpiar filtros"
+                                icon="pi pi-filter-slash"
+                                className="p-button-text"
+                                onClick={() => {
+                                    setProgressNameFilter('');
+                                    setProgressEmailFilter('');
+                                    setProgressMin(null);
+                                    setProgressMax(null);
+                                    setProgressLastSubmissionFrom(null);
+                                    setProgressLastSubmissionTo(null);
+                                    setProgressPage(0);
+                                }}
+                            />
+                        </div>
+                    </div>
+                </div>
+                )}
 
-                            const severityColor =
-                                severity === 'success'
-                                    ? '#16a34a'
-                                    : severity === 'warning'
-                                        ? '#f59e0b'
-                                        : '#ef4444';
+                <div className="card p-0 overflow-auto">
+                    <table className="w-full">
+                        <thead>
+                            <tr className="text-left text-sm text-600">
+                                <th className="p-3">Estudiante</th>
+                                <th className="p-3">Email</th>
+                                <th className="p-3">Completados</th>
+                                <th className="p-3">% Avance</th>
+                                <th className="p-3">Última entrega</th>
+                                <th className="p-3 text-right">Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {paginatedProgress.map((p) => {
+                                const total = p.total_exercises || 0;
+                                const done = p.done_exercises || 0;
+                                const percent = total
+                                    ? Math.round((done / total) * 100)
+                                    : 0;
 
-                            return (
-                                <tr 
-                                    key={p.student_id} 
-                                    className="text-sm cursor-pointer hover:surface-100"
-                                    onClick={() => router.push(`/courses/${slug}/students/${p.student_id}`)}
-                                    style={{ cursor: 'pointer' }}
-                                >
-                                    <td className="p-3 font-medium text-800">
-                                        {p.full_name}
-                                    </td>
-                                    <td className="p-3 text-700">{p.email}</td>
-                                    <td className="p-3 text-700">
-                                        {done}/{total}
-                                    </td>
-                                    <td className="p-3">
-                                        <div className="flex align-items-center gap-2">
-                                            <div
-                                                style={{
-                                                    flex: 1,
-                                                    height: '0.5rem',
-                                                    borderRadius: '999px',
-                                                    background: '#e5e7eb',
-                                                    overflow: 'hidden',
-                                                }}
-                                            >
+                                const severity =
+                                    percent >= 70
+                                        ? 'success'
+                                        : percent >= 40
+                                            ? 'warning'
+                                            : 'danger';
+
+                                const severityColor =
+                                    severity === 'success'
+                                        ? '#16a34a'
+                                        : severity === 'warning'
+                                            ? '#f59e0b'
+                                            : '#ef4444';
+
+                                return (
+                                    <tr 
+                                        key={p.student_id} 
+                                        className="text-sm cursor-pointer hover:surface-100"
+                                        onClick={() => router.push(`/courses/${slug}/students/${p.student_id}`)}
+                                        style={{ cursor: 'pointer' }}
+                                    >
+                                        <td className="p-3 font-medium text-800">
+                                            {p.full_name}
+                                        </td>
+                                        <td className="p-3 text-700">{p.email}</td>
+                                        <td className="p-3 text-700">
+                                            {done}/{total}
+                                        </td>
+                                        <td className="p-3">
+                                            <div className="flex align-items-center gap-2">
                                                 <div
                                                     style={{
-                                                        width: `${percent}%`,
-                                                        height: '100%',
-                                                        background: severityColor,
+                                                        flex: 1,
+                                                        height: '0.5rem',
+                                                        borderRadius: '999px',
+                                                        background: '#e5e7eb',
+                                                        overflow: 'hidden',
                                                     }}
-                                                />
+                                                >
+                                                    <div
+                                                        style={{
+                                                            width: `${percent}%`,
+                                                            height: '100%',
+                                                            background: severityColor,
+                                                        }}
+                                                    />
+                                                </div>
+                                                <span className="text-700">
+                                                    {percent}%
+                                                </span>
                                             </div>
-                                            <span className="text-700">
-                                                {percent}%
-                                            </span>
-                                        </div>
-                                    </td>
-                                    <td className="p-3 text-700">
-                                        {p.last_submission_at
-                                            ? new Date(
-                                                p.last_submission_at
-                                            ).toLocaleString()
-                                            : 'Sin entregas'}
-                                    </td>
-                                    <td className="p-3 text-right">
-                                        <Button
-                                            icon="pi pi-arrow-right"
-                                            className="p-button-text p-button-sm"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                router.push(`/courses/${slug}/students/${p.student_id}`);
-                                            }}
-                                        />
-                                    </td>
-                                </tr>
-                            );
-                        })}
-                    </tbody>
-                </table>
-            </div>
+                                        </td>
+                                        <td className="p-3 text-700">
+                                            {p.last_submission_at
+                                                ? new Date(
+                                                    p.last_submission_at
+                                                ).toLocaleString()
+                                                : 'Sin entregas'}
+                                        </td>
+                                        <td className="p-3 text-right">
+                                            <Button
+                                                icon="pi pi-arrow-right"
+                                                className="p-button-text p-button-sm"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    router.push(`/courses/${slug}/students/${p.student_id}`);
+                                                }}
+                                            />
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+
+                {/* Paginación */}
+                <Paginator
+                    first={progressPage * progressPageSize}
+                    rows={progressPageSize}
+                    totalRecords={totalProgress}
+                    rowsPerPageOptions={[5, 10, 20, 50]}
+                    onPageChange={(e: PaginatorPageChangeEvent) => {
+                        setProgressPage(e.page);
+                        setProgressPageSize(e.rows);
+                    }}
+                    className="mt-3"
+                />
+            </>
         );
     };
 
     // ─────────────────────────────
     // Render tab de ejercicios para ESTUDIANTE
     // ─────────────────────────────
-    const filteredStudentExercises = (() => {
-        const now = new Date();
-
-        return studentExercises.filter((ex) => {
-            const due = ex.due_date ? new Date(ex.due_date) : null;
-            const isLate = ex.status === 'PENDING' && due && due < now;
-
-            switch (studentExerciseFilter) {
-                case 'PENDING':
-                    return ex.status === 'PENDING' && !isLate;
-                case 'DONE':
-                    return ex.status === 'DONE';
-                case 'LATE':
-                    return isLate;
-                default:
-                    return true;
-            }
-        });
-    })();
-
     const statusTag = (status: SubmissionStatus, dueDate?: string | null) => {
         const now = new Date();
         const due = dueDate ? new Date(dueDate) : null;
@@ -766,6 +1373,70 @@ const CoursePage: React.FC = () => {
             );
         }
 
+        // Filtrar ejercicios de estudiante
+        const now = new Date();
+        let filteredExercises = studentExercises.filter((ex) => {
+            // Filtro por estado (PENDING/DONE/LATE)
+            const due = ex.due_date ? new Date(ex.due_date) : null;
+            const isLate = ex.status === 'PENDING' && due && due < now;
+
+            switch (studentExerciseFilter) {
+                case 'PENDING':
+                    if (!(ex.status === 'PENDING' && !isLate)) return false;
+                    break;
+                case 'DONE':
+                    if (ex.status !== 'DONE') return false;
+                    break;
+                case 'LATE':
+                    if (!isLate) return false;
+                    break;
+                default:
+                    break;
+            }
+
+            // Filtro por nombre
+            if (studentExercisesNameFilter && !ex.exercise_name.toLowerCase().includes(studentExercisesNameFilter.toLowerCase())) {
+                return false;
+            }
+
+            // Filtro por texto
+            if (studentExercisesTextFilter) {
+                const ce = exercises.find((c) => c.id === ex.course_exercise_id);
+                const text = ce?.exercise?.text ?? '';
+                if (!text.toLowerCase().includes(studentExercisesTextFilter.toLowerCase())) {
+                    return false;
+                }
+            }
+
+            // Filtro por fecha de publicación
+            const ce = exercises.find((c) => c.id === ex.course_exercise_id);
+            if (ce?.published_at) {
+                const publishedDate = new Date(ce.published_at);
+                if (studentExercisesPublishedFrom && publishedDate < studentExercisesPublishedFrom) {
+                    return false;
+                }
+                if (studentExercisesPublishedTo && publishedDate > studentExercisesPublishedTo) {
+                    return false;
+                }
+            }
+
+            // Filtro por con/sin audio
+            if (studentExercisesWithAudio === 'with' && !ex.has_audio) {
+                return false;
+            }
+            if (studentExercisesWithAudio === 'without' && ex.has_audio) {
+                return false;
+            }
+
+            return true;
+        });
+
+        // Paginación
+        const totalExercises = filteredExercises.length;
+        const startIndex = studentExercisesPage * studentExercisesPageSize;
+        const endIndex = startIndex + studentExercisesPageSize;
+        const paginatedExercises = filteredExercises.slice(startIndex, endIndex);
+
         const filters: { key: StudentExerciseFilter; label: string }[] = [
             { key: 'ALL', label: 'Todos' },
             { key: 'PENDING', label: 'Pendientes' },
@@ -785,18 +1456,126 @@ const CoursePage: React.FC = () => {
                                     ? ''
                                     : 'p-button-text'
                             }
-                            onClick={() => setStudentExerciseFilter(f.key)}
+                            onClick={() => {
+                                setStudentExerciseFilter(f.key);
+                                setStudentExercisesPage(0);
+                            }}
                         />
                     ))}
                 </div>
 
-                {!filteredStudentExercises.length ? (
+                {/* Botón toggle filtros */}
+                <div className="flex justify-content-end mb-2">
+                    <Button
+                        label={showStudentExercisesFilters ? 'Ocultar filtros' : 'Mostrar filtros'}
+                        icon={showStudentExercisesFilters ? 'pi pi-eye-slash' : 'pi pi-filter'}
+                        className="p-button-text p-button-sm"
+                        onClick={() => setShowStudentExercisesFilters(!showStudentExercisesFilters)}
+                    />
+                </div>
+
+                {/* Filtros adicionales */}
+                {showStudentExercisesFilters && (
+                    <div className="card mb-3">
+                        <h4 className="text-base font-semibold mb-3">Filtros adicionales</h4>
+                    <div className="grid">
+                        <div className="col-12 md:col-3">
+                            <label className="block text-sm font-medium mb-2">Nombre</label>
+                            <InputText
+                                value={studentExercisesNameFilter}
+                                onChange={(e) => {
+                                    setStudentExercisesNameFilter(e.target.value);
+                                    setStudentExercisesPage(0);
+                                }}
+                                placeholder="Buscar por nombre"
+                                className="w-full"
+                            />
+                        </div>
+                        <div className="col-12 md:col-3">
+                            <label className="block text-sm font-medium mb-2">Texto</label>
+                            <InputText
+                                value={studentExercisesTextFilter}
+                                onChange={(e) => {
+                                    setStudentExercisesTextFilter(e.target.value);
+                                    setStudentExercisesPage(0);
+                                }}
+                                placeholder="Buscar en texto"
+                                className="w-full"
+                            />
+                        </div>
+                        <div className="col-12 md:col-2">
+                            <label className="block text-sm font-medium mb-2">Publicado desde</label>
+                            <Calendar
+                                value={studentExercisesPublishedFrom}
+                                onChange={(e) => {
+                                    setStudentExercisesPublishedFrom(e.value as Date | null);
+                                    setStudentExercisesPage(0);
+                                }}
+                                showIcon
+                                dateFormat="dd/mm/yy"
+                                placeholder="Fecha inicial"
+                                className="w-full"
+                            />
+                        </div>
+                        <div className="col-12 md:col-2">
+                            <label className="block text-sm font-medium mb-2">Publicado hasta</label>
+                            <Calendar
+                                value={studentExercisesPublishedTo}
+                                onChange={(e) => {
+                                    setStudentExercisesPublishedTo(e.value as Date | null);
+                                    setStudentExercisesPage(0);
+                                }}
+                                showIcon
+                                dateFormat="dd/mm/yy"
+                                placeholder="Fecha final"
+                                className="w-full"
+                            />
+                        </div>
+                        <div className="col-12 md:col-2">
+                            <label className="block text-sm font-medium mb-2">Con audio</label>
+                            <Dropdown
+                                value={studentExercisesWithAudio}
+                                onChange={(e) => {
+                                    setStudentExercisesWithAudio(e.value);
+                                    setStudentExercisesPage(0);
+                                }}
+                                options={[
+                                    { label: 'Todos', value: 'all' },
+                                    { label: 'Con audio', value: 'with' },
+                                    { label: 'Sin audio', value: 'without' }
+                                ]}
+                                placeholder="Seleccionar"
+                                className="w-full"
+                            />
+                        </div>
+                        <div className="col-12 flex align-items-end">
+                            <Button
+                                label="Limpiar filtros"
+                                icon="pi pi-filter-slash"
+                                className="p-button-text"
+                                onClick={() => {
+                                    setStudentExercisesNameFilter('');
+                                    setStudentExercisesTextFilter('');
+                                    setStudentExercisesPublishedFrom(null);
+                                    setStudentExercisesPublishedTo(null);
+                                    setStudentExercisesWithAudio('all');
+                                    setStudentExercisesPage(0);
+                                }}
+                            />
+                        </div>
+                    </div>
+                </div>
+                )}
+
+                {!paginatedExercises.length ? (
                     <p className="text-600">
-                        No hay ejercicios en esta categoría.
+                        {filteredExercises.length === 0 && studentExercises.length > 0 
+                            ? 'No hay ejercicios que coincidan con los filtros.' 
+                            : 'No hay ejercicios en esta categoría.'}
                     </p>
                 ) : (
                     <div className="grid">
-                        {filteredStudentExercises.map((ex) => {
+                        {paginatedExercises.map((ex) => {
                             const ce = exercises.find(
                                 (c) => c.id === ex.course_exercise_id
                             );
@@ -849,11 +1628,13 @@ const CoursePage: React.FC = () => {
                                                 className="p-button-text"
                                                 onClick={() => {
                                                     if (!course) return;
-                                                    const exerciseSlug =
-                                                        encodeCourseExerciseSlug(
-                                                            course.id,
-                                                            ex.course_exercise_id
-                                                        );
+                                                    // Asegura que el slug se genera correctamente con el id de CourseExercise
+                                                    let exerciseSlug = '';
+                                                    if (typeof window !== 'undefined') {
+                                                        exerciseSlug = window.btoa(`${course.id}:${ex.course_exercise_id}`);
+                                                        // Elimina el padding '=' de base64
+                                                        exerciseSlug = exerciseSlug.replace(/=+$/, '');
+                                                    }
                                                     router.push(
                                                         `/courses/${params.slug}/${exerciseSlug}`
                                                     );
@@ -866,6 +1647,19 @@ const CoursePage: React.FC = () => {
                         })}
                     </div>
                 )}
+
+                {/* Paginación */}
+                <Paginator
+                    first={studentExercisesPage * studentExercisesPageSize}
+                    rows={studentExercisesPageSize}
+                    totalRecords={totalExercises}
+                    rowsPerPageOptions={[5, 10, 20, 50]}
+                    onPageChange={(e: PaginatorPageChangeEvent) => {
+                        setStudentExercisesPage(e.page);
+                        setStudentExercisesPageSize(e.rows);
+                    }}
+                    className="mt-3"
+                />
             </>
         );
     };
@@ -1006,8 +1800,18 @@ const CoursePage: React.FC = () => {
                     token={token}
                     courseId={course.id}
                     publishedExerciseIds={exercises.map((ce) => ce.exercise_id)}
-                    onPublished={() => {
-                        window.location.reload();
+                    onPublished={async () => {
+                        // Refetch exercises and update state instead of reloading the page
+                        if (!token || !course?.id) return;
+                        try {
+                            setLoadingExercises(true);
+                            const data = await getCourseExercises(token, course.id);
+                            setExercises(data.filter((ce) => !ce.is_deleted));
+                        } catch (err) {
+                            console.error('Error reloading exercises after publish:', err);
+                        } finally {
+                            setLoadingExercises(false);
+                        }
                     }}
                 />
             )}

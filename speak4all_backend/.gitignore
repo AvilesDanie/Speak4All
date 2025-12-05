@@ -65,3 +65,4 @@ tts_build_*/
 *.env
 
 
+.json

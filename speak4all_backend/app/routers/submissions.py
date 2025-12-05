@@ -1,6 +1,5 @@
 from datetime import datetime, timezone
 from pathlib import Path
-import shutil
 import logging
 
 from fastapi import (
@@ -19,12 +18,12 @@ from ..deps import get_current_user
 from ..config import settings
 from ..websocket_manager import manager
 from sqlalchemy import and_
+from app.services.storage import upload_fileobj, generate_signed_url, delete_blob
+
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Carpeta base donde guardaremos los audios de entregas
-BASE_SUBMISSIONS_DIR = Path("media/submissions")
 
 
 def validate_audio_file(file: UploadFile) -> None:
@@ -178,31 +177,29 @@ def save_submission_audio(
     student_id: int,
 ) -> str:
     """
-    Guarda el audio en disco y devuelve el path (string).
-    Estructura: submissions/{course_id}/{course_ex_id}/{student_id}/timestamp_nombre.mp3
-    (relativo a media/, sin incluir 'media/' en el string)
-    """
-    BASE_SUBMISSIONS_DIR.mkdir(parents=True, exist_ok=True)
+    Sube el audio a Google Cloud Storage y devuelve el blob_name.
 
+    Estructura en el bucket:
+      submissions/{course_id}/{course_ex_id}/{student_id}/timestamp_nombre_original.ext
+    """
     course_id = course_ex.course_id
     ce_id = course_ex.id
 
-    # Asegura carpeta por curso / ejercicio / estudiante
-    target_dir = BASE_SUBMISSIONS_DIR / str(course_id) / str(ce_id) / str(student_id)
-    target_dir.mkdir(parents=True, exist_ok=True)
-
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     filename = f"{ts}_{file.filename}"
-    dest = target_dir / filename
 
-    with dest.open("wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    blob_name = f"submissions/{course_id}/{ce_id}/{student_id}/{filename}"
 
-    # Asegura que ambas rutas sean absolutas
-    dest_abs = dest.resolve()
-    media_base = (Path.cwd() / "media").resolve()
-    rel_path = dest_abs.relative_to(media_base)
-    return str(rel_path.as_posix())
+    # Asegurar que el puntero del archivo está al inicio
+    file.file.seek(0)
+
+    upload_fileobj(
+        file_obj=file.file,
+        destination_blob_name=blob_name,
+        content_type=file.content_type,
+    )
+
+    return blob_name
 
 
 # ========== ENDPOINTS ==========
@@ -257,9 +254,28 @@ async def submit_exercise(
     db.commit()
     db.refresh(submission)
     
-    # Broadcast to connected clients
-    submission_dict = schemas.SubmissionOut.model_validate(submission).model_dump(mode='json')
-    await manager.broadcast_submission_created(course_ex.course_id, submission_dict)
+    # Broadcast to connected clients con información detallada
+    exercise_name = course_ex.exercise.name if course_ex.exercise else 'Ejercicio'
+    student_name = current_user.full_name
+    has_audio = submission.audio_path is not None
+    therapist_id = course_ex.course.therapist_id if course_ex.course else None
+    
+    await manager.broadcast_to_course(
+        course_ex.course_id,
+        {
+            "type": "submission_created",
+            "data": {
+                "course_id": course_ex.course_id,
+                "course_exercise_id": course_exercise_id,
+                "student_id": current_user.id,
+                "student_name": student_name,
+                "exercise_name": exercise_name,
+                "therapist_id": therapist_id,
+                "has_audio": has_audio,
+                "submission_id": submission.id,
+            }
+        }
+    )
     
     return submission
 
@@ -307,9 +323,26 @@ async def update_submission_status(
     db.commit()
     db.refresh(sub)
     
-    # Broadcast to connected clients
-    submission_dict = schemas.SubmissionOut.model_validate(sub).model_dump(mode='json')
-    await manager.broadcast_submission_updated(course_ex.course_id, submission_dict)
+    # Broadcast to connected clients con información detallada
+    exercise_name = course_ex.exercise.name if course_ex.exercise else 'Ejercicio'
+    student_name = current_user.full_name
+    has_audio = sub.audio_path is not None
+    
+    await manager.broadcast_to_course(
+        course_ex.course_id,
+        {
+            "type": "submission_updated",
+            "data": {
+                "course_id": course_ex.course_id,
+                "course_exercise_id": sub.course_exercise_id,
+                "student_id": current_user.id,
+                "student_name": student_name,
+                "exercise_name": exercise_name,
+                "has_audio": has_audio,
+                "submission_id": sub.id,
+            }
+        }
+    )
     
     return sub
 
@@ -349,8 +382,14 @@ def delete_submission_audio(
 
     check_due_date(course_ex)
 
-    # Opción: también puedes intentar borrar el archivo físico.
-    # Para respetar "borrado lógico", solo limpiamos la referencia en BD.
+    # Borrar el archivo de Google Cloud Storage
+    if sub.audio_path:
+        try:
+            delete_blob(sub.audio_path)
+            logger.info(f"Audio eliminado de GCS: {sub.audio_path}")
+        except Exception as e:
+            logger.warning(f"No se pudo eliminar el audio de GCS: {e}")
+    
     sub.audio_path = None
     sub.updated_at = datetime.now(timezone.utc)
     db.commit()
@@ -362,7 +401,7 @@ def delete_submission_audio(
     "/course-exercises/{course_exercise_id}/cancel",
     status_code=status.HTTP_204_NO_CONTENT,
 )
-def cancel_submission(
+async def cancel_submission(
     course_exercise_id: int,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
@@ -401,9 +440,40 @@ def cancel_submission(
     # Verificar fecha límite
     check_due_date(course_ex)
 
+    # Borrar el archivo de Google Cloud Storage si existe
+    if sub.audio_path:
+        try:
+            delete_blob(sub.audio_path)
+            logger.info(f"Audio eliminado de GCS al cancelar submission: {sub.audio_path}")
+        except Exception as e:
+            logger.warning(f"No se pudo eliminar el audio de GCS: {e}")
+
+    # Obtener datos necesarios antes de eliminar
+    course_id = course_ex.course_id
+    student_id = sub.student_id
+    student_name = current_user.full_name
+    exercise_name = course_ex.exercise.name if course_ex.exercise else "Ejercicio"
+    therapist_id = course_ex.course.therapist_id if course_ex.course else None
+
     # Eliminar la entrega
     db.delete(sub)
     db.commit()
+
+    # Notificar vía WebSocket
+    await manager.broadcast_to_course(
+        course_id,
+        {
+            "type": "submission_deleted",
+            "data": {
+                "course_id": course_id,
+                "course_exercise_id": course_exercise_id,
+                "student_id": student_id,
+                "student_name": student_name,
+                "exercise_name": exercise_name,
+                "therapist_id": therapist_id,
+            }
+        }
+    )
 
     return None
 
@@ -636,6 +706,7 @@ def list_student_exercises_status_in_course(
             models.CourseExercise.due_date.label("due_date"),
             models.Submission.status.label("submission_status"),
             models.Submission.created_at.label("submitted_at"),
+            models.Submission.audio_path.label("audio_path"),
         )
         .join(models.Exercise, models.Exercise.id == models.CourseExercise.exercise_id)
         .outerjoin(
@@ -665,7 +736,30 @@ def list_student_exercises_status_in_course(
             due_date=row.due_date,
             status=status,
             submitted_at=row.submitted_at,
+            has_audio=bool(row.audio_path),
         )
         items.append(item)
 
     return items
+
+
+
+@router.get(
+    "/{submission_id}/audio-url",
+    response_model=dict,
+)
+def get_submission_audio_url(
+    submission_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # Opcional: permisos (therapist del curso o student dueño)
+    sub = db.query(models.Submission).filter(
+        models.Submission.id == submission_id
+    ).first()
+
+    if not sub or not sub.audio_path:
+        raise HTTPException(status_code=404, detail="Audio no encontrado")
+
+    url = generate_signed_url(sub.audio_path, minutes=60)
+    return {"url": url}

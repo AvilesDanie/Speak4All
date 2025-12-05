@@ -93,6 +93,12 @@ async def publish_exercise_to_course(
     
     # Broadcast to connected clients
     course_ex_dict = schemas.CourseExerciseOut.model_validate(course_ex).model_dump(mode='json')
+    # Add extra notification fields
+    course_ex_dict['therapist_name'] = current_user.full_name
+    course_ex_dict['course_name'] = course.name
+    course_ex_dict['exercise_name'] = exercise.name
+    # also ensure top-level name is set for convenience
+    course_ex_dict['name'] = exercise.name
     await manager.broadcast_exercise_published(course.id, course_ex_dict)
     
     return course_ex
@@ -175,7 +181,14 @@ async def delete_published_exercise(
     course_exercise.deleted_at = datetime.now(timezone.utc)
     db.commit()
     
-    # Broadcast to connected clients
-    await manager.broadcast_exercise_deleted(course.id, course_exercise_id)
+    # Broadcast to connected clients with extra info for notifications
+    exercise = db.query(models.Exercise).filter(models.Exercise.id == course_exercise.exercise_id).first()
+    payload = {
+        "course_exercise_id": course_exercise_id,
+        "exercise_name": exercise.name if exercise else "Ejercicio",
+        "course_name": course.name,
+        "therapist_name": current_user.full_name,
+    }
+    await manager.broadcast_exercise_deleted(course.id, payload)
     
     return

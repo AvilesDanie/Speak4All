@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 
 export type WebSocketMessage = {
-  type: 'connected' | 'pong' | 'exercise_published' | 'exercise_deleted' | 'submission_created' | 'submission_updated' | 'student_joined' | 'student_removed' | 'join_request';
+  type: 'connected' | 'pong' | 'exercise_published' | 'exercise_deleted' | 'submission_created' | 'submission_updated' | 'submission_deleted' | 'student_joined' | 'student_removed' | 'join_request';
   message?: string;
   data?: any;
 };
@@ -22,8 +22,15 @@ interface UseWebSocketOptions {
 export function useWebSocket({ courseId, token, onMessage, enabled = true }: UseWebSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
+  const onMessageRef = useRef(onMessage);
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<WebSocketMessage | null>(null);
+
+  // Keep onMessageRef in sync with onMessage
+  useEffect(() => {
+    onMessageRef.current = onMessage;
+  }, [onMessage]);
 
   const connect = useCallback(() => {
     if (!courseId || !token || !enabled) {
@@ -49,9 +56,10 @@ export function useWebSocket({ courseId, token, onMessage, enabled = true }: Use
 
       ws.onmessage = (event) => {
         try {
-          const message: WebSocketMessage = JSON.parse(event.data);
-          console.log('WebSocket message received:', message);
-          onMessage?.(message);
+          const parsedMessage: WebSocketMessage = JSON.parse(event.data);
+          console.log('WebSocket message received:', parsedMessage);
+          setMessage(parsedMessage);
+          onMessageRef.current?.(parsedMessage);
         } catch (err) {
           console.error('Failed to parse WebSocket message:', err);
         }
@@ -81,7 +89,7 @@ export function useWebSocket({ courseId, token, onMessage, enabled = true }: Use
       console.error('Failed to create WebSocket connection:', err);
       setError('Failed to create connection');
     }
-  }, [courseId, token, enabled, onMessage]);
+  }, [courseId, token, enabled]);
 
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {
@@ -125,6 +133,7 @@ export function useWebSocket({ courseId, token, onMessage, enabled = true }: Use
   return {
     isConnected,
     error,
+    message,
     sendMessage,
     disconnect,
   };

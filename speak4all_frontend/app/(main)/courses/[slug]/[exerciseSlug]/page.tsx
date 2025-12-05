@@ -10,8 +10,9 @@ import { InputTextarea } from 'primereact/inputtextarea';
 import AudioPlayer from '../../../exercises/AudioPlayer';
 import { API_BASE } from '@/services/apiClient';
 import { BackendUser, Role } from '@/services/auth';
-import { ExerciseOut } from '@/services/exercises';
+import { ExerciseOut, getExerciseAudioUrl, getExercisePdfUrl } from '@/services/exercises';
 import { CourseExercise, StudentExerciseStatus, SubmissionStatus } from '@/services/courses';
+import { useWebSocket, WebSocketMessage } from '@/hooks/useWebSocket';
 
 type CourseExerciseOut = CourseExercise;
 
@@ -54,7 +55,6 @@ const CourseExerciseDetailPage: React.FC = () => {
 
     const router = useRouter();
 
-
     const [token, setToken] = useState<string | null>(null);
     const [role, setRole] = useState<Role | null>(null);
 
@@ -74,9 +74,12 @@ const CourseExerciseDetailPage: React.FC = () => {
     const [showSuccessModal, setShowSuccessModal] = useState(false);
     const [showErrorModal, setShowErrorModal] = useState(false);
     const [modalErrorMsg, setModalErrorMsg] = useState<string>('');
+    const [exerciseDeletedModal, setExerciseDeletedModal] = useState(false);
 
     const [file, setFile] = useState<File | null>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
+    const [exerciseAudioUrl, setExerciseAudioUrl] = useState<string | null>(null);
+    const [downloadingPdf, setDownloadingPdf] = useState(false);
 
     // Cargar user + token + ids desde el slug
     // Cargar user + token + ids desde el exerciseSlug
@@ -111,11 +114,17 @@ useEffect(() => {
     // Cargar datos del ejercicio + estado del alumno
     useEffect(() => {
         const loadData = async () => {
-            if (!token || !role || role !== 'STUDENT') {
+            if (!token || !role) {
                 setLoading(false);
                 return;
             }
             if (courseId == null || courseExerciseId == null) {
+                setLoading(false);
+                return;
+            }
+
+            // Para estudiantes, cargar ejercicio + estado
+            if (role !== 'STUDENT') {
                 setLoading(false);
                 return;
             }
@@ -175,6 +184,77 @@ useEffect(() => {
             loadData();
         }
     }, [token, role, courseId, courseExerciseId]);
+
+    // Efecto para obtener URL firmada del audio del ejercicio
+    useEffect(() => {
+        if (courseExercise?.exercise?.id && token) {
+            console.log('Obteniendo URL de audio para ejercicio ID:', courseExercise.exercise.id);
+            getExerciseAudioUrl(courseExercise.exercise.id, token)
+                .then(url => {
+                    console.log('URL de audio obtenida:', url);
+                    setExerciseAudioUrl(url);
+                })
+                .catch(err => {
+                    console.error('Error obteniendo URL de audio:', err);
+                    setExerciseAudioUrl(null);
+                });
+        }
+    }, [courseExercise?.exercise?.id, token]);
+
+    // WebSocket para actualizaciones en tiempo real
+    const { message } = useWebSocket({ 
+        courseId, 
+        token, 
+        enabled: !!courseId && !!token && role === 'STUDENT' 
+    });
+
+    // Manejar mensajes de WebSocket
+    useEffect(() => {
+        if (!message || !courseId || !courseExerciseId) return;
+
+        if (message.type === 'exercise_deleted') {
+            const data = message.data as any;
+            // Si el ejercicio eliminado es el que está viendo el estudiante
+            if (data.course_exercise_id === courseExerciseId || data.id === courseExerciseId) {
+                console.log('[Exercise Detail] Exercise was deleted, showing modal');
+                setExerciseDeletedModal(true);
+            }
+        } else if (message.type === 'submission_deleted') {
+            const data = message.data as any;
+            // Si el evento es para este ejercicio y es para el estudiante actual
+            if (data.course_exercise_id === courseExerciseId) {
+                // Actualizar estado local para mostrar que no hay entrega
+                setStudentStatus((prev) =>
+                    prev
+                        ? {
+                              ...prev,
+                              status: 'PENDING',
+                              submitted_at: null,
+                          }
+                        : prev
+                );
+            }
+        } else if (message.type === 'submission_created' || message.type === 'submission_updated') {
+            const data = message.data as any;
+            if (data.course_exercise_id === courseExerciseId) {
+                // Recargar estado del estudiante si hay cambios
+                if (token && courseId && courseExerciseId) {
+                    fetch(
+                        `${API_BASE}/course-students/${courseId}/me/exercises`,
+                        { headers: { Authorization: `Bearer ${token}` } }
+                    )
+                        .then((res) => res.json())
+                        .then((statusList: StudentExerciseStatus[]) => {
+                            const s = statusList.find(
+                                (st) => st.course_exercise_id === courseExerciseId
+                            );
+                            if (s) setStudentStatus(s);
+                        })
+                        .catch((err) => console.error('Error reloading status:', err));
+                }
+            }
+        }
+    }, [message, courseId, courseExerciseId, token]);
 
     const statusTag = () => {
         if (!studentStatus) return null;
@@ -306,6 +386,33 @@ useEffect(() => {
         }
     };
 
+    const handleDownloadPdf = async () => {
+        if (!courseExercise?.exercise?.id || !token) {
+            setModalErrorMsg('Error al descargar el PDF.');
+            setShowErrorModal(true);
+            return;
+        }
+
+        setDownloadingPdf(true);
+        try {
+            const pdfUrl = await getExercisePdfUrl(courseExercise.exercise.id, token);
+            
+            // Descargar el PDF
+            const link = document.createElement('a');
+            link.href = pdfUrl;
+            link.download = `${courseExercise.exercise.name || 'ejercicio'}.pdf`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        } catch (err) {
+            console.error('Error descargando PDF:', err);
+            setModalErrorMsg('Error al descargar el PDF.');
+            setShowErrorModal(true);
+        } finally {
+            setDownloadingPdf(false);
+        }
+    };
+
     if (loading) {
         return (
             <div
@@ -320,7 +427,46 @@ useEffect(() => {
         );
     }
 
-    if (!token || role !== 'STUDENT' || !courseExercise || !studentStatus) {
+    // Verificar terapeuta ANTES de verificar si hay token
+    if (role === 'THERAPIST' && courseExerciseId) {
+        const reviewUrl = `/courses/${slug}/exercises/${courseExerciseId}`;
+        
+        return (
+            <div className="surface-ground p-3 md:p-4" style={{ minHeight: '60vh' }}>
+                <div className="card p-4 border-round-2xl">
+                    <h2 className="text-xl font-semibold mb-2">
+                        Vista de estudiante
+                    </h2>
+                    <p className="text-600 m-0 mb-3">
+                        Esta es la vista que ven los estudiantes. Como terapeuta, puedes revisar las entregas desde la página de gestión.
+                    </p>
+                    <Button
+                        label="Ir a revisar entregas"
+                        icon="pi pi-eye"
+                        className="mt-2"
+                        onClick={() => router.push(reviewUrl)}
+                    />
+                </div>
+            </div>
+        );
+    }
+
+    if (!token) {
+        return (
+            <div className="surface-ground p-3 md:p-4" style={{ minHeight: '60vh' }}>
+                <div className="card p-4 border-round-2xl">
+                    <h2 className="text-xl font-semibold mb-2">
+                        No se pudo cargar el ejercicio
+                    </h2>
+                    <p className="text-600 m-0">
+                        Debes iniciar sesión para ver este ejercicio.
+                    </p>
+                </div>
+            </div>
+        );
+    }
+
+    if (role !== 'STUDENT' || !courseExercise) {
         return (
             <div className="surface-ground p-3 md:p-4" style={{ minHeight: '60vh' }}>
                 <div className="card p-4 border-round-2xl">
@@ -338,36 +484,35 @@ useEffect(() => {
 
     const exercise = courseExercise.exercise;
     const text = exercise?.text ?? '';
-    const title = studentStatus.exercise_name;
-    const dueDate = studentStatus.due_date
+    const title = studentStatus?.exercise_name ?? exercise?.name ?? '';
+    const dueDate = studentStatus?.due_date
         ? new Date(studentStatus.due_date).toLocaleString()
         : null;
-    const submittedAt = studentStatus.submitted_at
+    const submittedAt = studentStatus?.submitted_at
         ? new Date(studentStatus.submitted_at).toLocaleString()
         : null;
 
-    let audioSrc: string | null = null;
-    if (exercise?.audio_path) {
-        const normalized = exercise.audio_path.replace(/\\/g, '/');
-        audioSrc = exercise.audio_path.startsWith('http')
-            ? exercise.audio_path
-            : `${AUDIO_BASE_URL}/media/${normalized}`;
-    }
-
     return (
         <div className="surface-ground p-3 md:p-4" style={{ minHeight: '60vh' }}>
-            {/* Barra superior: volver + estado */}
-            <div className="flex justify-content-between align-items-center mb-3">
-                <div className="flex align-items-center gap-2">
-                    <Button
-    type="button"
-    icon="pi pi-arrow-left"
-    className="p-button-text p-button-rounded"
-    label="Volver al curso"
-    onClick={() => router.push(`/courses/${slug}`)}
-/>
+            {/* Barra superior: volver + botones + estado */}
+            <div className="flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                <Button
+                    type="button"
+                    icon="pi pi-arrow-left"
+                    className="p-button-text p-button-rounded"
+                    label="Volver al curso"
+                    onClick={() => router.push(`/courses/${slug}`)}
+                />
 
-                </div>
+                <Button
+                    type="button"
+                    icon="pi pi-download"
+                    className="p-button-text p-button-rounded"
+                    label="Descargar PDF"
+                    loading={downloadingPdf}
+                    disabled={downloadingPdf}
+                    onClick={handleDownloadPdf}
+                />
 
                 <div className="flex flex-column align-items-end gap-1">
                     <span className="text-xs text-600">Estado del ejercicio</span>
@@ -410,7 +555,7 @@ useEffect(() => {
                             />
                             <div className="flex justify-content-between text-xs mt-2 text-indigo-100">
                                 <span>
-                                    {studentStatus.status === 'DONE'
+                                    {studentStatus?.status === 'DONE'
                                         ? 'Ejercicio entregado'
                                         : 'Ejercicio pendiente'}
                                 </span>
@@ -452,7 +597,7 @@ useEffect(() => {
                         </div>
                     </div>
 
-                    {audioSrc && (
+                    {exercise?.audio_path && (
                         <div className="card">
                             <h3 className="text-lg font-semibold mb-2">
                                 Audio de referencia
@@ -460,7 +605,19 @@ useEffect(() => {
                             <p className="text-600 text-sm mb-3">
                                 Escucha cómo se pronuncia el ejercicio antes de grabarte.
                             </p>
-                            <AudioPlayer src={audioSrc} />
+                            {exerciseAudioUrl ? (
+                                <AudioPlayer 
+                                    src={exerciseAudioUrl} 
+                                    exerciseId={courseExercise?.exercise?.id}
+                                    token={token}
+                                    exerciseName={courseExercise?.exercise?.name}
+                                />
+                            ) : (
+                                <div className="text-center p-3">
+                                    <i className="pi pi-spin pi-spinner" style={{ fontSize: '2rem' }} />
+                                    <p className="text-sm text-600 mt-2">Cargando audio...</p>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
@@ -526,13 +683,7 @@ useEffect(() => {
                         </p>
                     )}
 
-                    {successMsg && (
-                        <p className="text-green-600 text-sm mb-2">
-                            {successMsg}
-                        </p>
-                    )}
-
-                    {studentStatus.status === 'DONE' ? (
+                    {studentStatus?.status === 'DONE' ? (
                         <div className="flex flex-column gap-2">
                             <Button
                                 label="Cambiar audio"
@@ -613,6 +764,34 @@ useEffect(() => {
                 onHide={() => setErrorMsg(null)}
             >
                 <p>{errorMsg}</p>
+            </Dialog>
+
+            {/* Modal: Ejercicio eliminado */}
+            <Dialog
+                header="Ejercicio eliminado"
+                visible={exerciseDeletedModal}
+                modal
+                style={{ width: '26rem', maxWidth: '95vw' }}
+                closable={false}
+                onHide={() => {
+                    setExerciseDeletedModal(false);
+                    router.push(`/courses/${slug}`);
+                }}
+            >
+                <div className="flex flex-column align-items-center gap-3 py-3">
+                    <i className="pi pi-info-circle text-orange-500" style={{ fontSize: '3rem' }} />
+                    <p className="text-center m-0">
+                        El ejercicio en el que se encontrabas ha sido eliminado por tu terapeuta. Serás redirigido a la lista de ejercicios.
+                    </p>
+                    <Button
+                        label="Aceptar"
+                        className="w-full"
+                        onClick={() => {
+                            setExerciseDeletedModal(false);
+                            router.push(`/courses/${slug}`);
+                        }}
+                    />
+                </div>
             </Dialog>
         </div>
     );

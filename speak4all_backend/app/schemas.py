@@ -59,6 +59,7 @@ class GoogleLoginRequest(BaseModel):
     email: str | None = None
     full_name: str | None = None
     role: UserRole | None = None
+    password: str | None = None  # Contraseña opcional para usuarios que quieren acceso sin Google OAuth
 
 
 class RegisterRequest(BaseModel):
@@ -275,6 +276,7 @@ class StudentExerciseStatus(BaseModel):
     due_date: Optional[datetime]
     status: SubmissionStatus
     submitted_at: Optional[datetime] = None
+    has_audio: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 

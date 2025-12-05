@@ -1,16 +1,21 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Button } from 'primereact/button';
 import { Tag } from 'primereact/tag';
 import { Dialog } from 'primereact/dialog';
 import { InputTextarea } from 'primereact/inputtextarea';
+import { InputText } from 'primereact/inputtext';
+import { Dropdown } from 'primereact/dropdown';
+import { Calendar } from 'primereact/calendar';
+import { Paginator, PaginatorPageChangeEvent } from 'primereact/paginator';
 import AudioPlayer from '../../../../exercises/AudioPlayer';
 import { API_BASE } from '@/services/apiClient';
 import { BackendUser, Role } from '@/services/auth';
-import { ExerciseOut } from '@/services/exercises';
+import { ExerciseOut, getExerciseAudioUrl, getSubmissionAudioUrl, getExercisePdfUrl } from '@/services/exercises';
 import { CourseExercise, SubmissionStatus } from '@/services/courses';
+import { useWebSocket, WebSocketMessage } from '@/hooks/useWebSocket';
 
 const AUDIO_BASE_URL = API_BASE;
 
@@ -70,6 +75,25 @@ const TherapistExerciseDetailPage: React.FC = () => {
     const [submissionDetail, setSubmissionDetail] = useState<SubmissionDetailOut | null>(null);
     const [loadingSubmissionDetail, setLoadingSubmissionDetail] = useState(false);
     const [submissionDetailError, setSubmissionDetailError] = useState<string | null>(null);
+    const [exerciseAudioUrl, setExerciseAudioUrl] = useState<string | null>(null);
+    const [submissionAudioUrl, setSubmissionAudioUrl] = useState<string | null>(null);
+    const [courseId, setCourseId] = useState<number | null>(null);
+    const [submissionCanceledModal, setSubmissionCanceledModal] = useState(false);
+    const [canceledStudentName, setCanceledStudentName] = useState<string>('');
+    const reloadTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const lastDeletedSubmissionRef = useRef<{ course_exercise_id: number; student_id: number } | null>(null);
+
+    // Estados para filtros y paginación
+    const [nameFilter, setNameFilter] = useState('');
+    const [emailFilter, setEmailFilter] = useState('');
+    const [statusFilter, setStatusFilter] = useState<'all' | 'submitted' | 'pending'>('all');
+    const [hasAudioFilter, setHasAudioFilter] = useState<'all' | 'with' | 'without'>('all');
+    const [submittedFrom, setSubmittedFrom] = useState<Date | null>(null);
+    const [submittedTo, setSubmittedTo] = useState<Date | null>(null);
+    const [currentPage, setCurrentPage] = useState(0);
+    const [pageSize, setPageSize] = useState(10);
+    const [showFilters, setShowFilters] = useState(true);
+    const [downloadingPdf, setDownloadingPdf] = useState(false);
 
     // Cargar token y role
     useEffect(() => {
@@ -99,6 +123,7 @@ const TherapistExerciseDetailPage: React.FC = () => {
         const loadData = async () => {
             try {
                 setLoading(true);
+                setErrorMsg(null);
 
                 // Primero necesitamos obtener el courseId del slug
                 const resCourses = await fetch(
@@ -107,17 +132,21 @@ const TherapistExerciseDetailPage: React.FC = () => {
                 );
 
                 if (!resCourses.ok) {
-                    setErrorMsg('No se pudo cargar el curso.');
+                    const errorText = await resCourses.text();
+                    setErrorMsg(`No se pudo cargar el curso: ${errorText}`);
                     return;
                 }
 
-                const courses = await resCourses.json();
-                const foundCourse = courses.find((c: any) => c.join_code === slug || c.id === Number(slug));
+                const coursesData = await resCourses.json();
+                const courses = coursesData.items || coursesData;
+                const foundCourse = courses.find((c: any) => c.join_code === slug);
                 
                 if (!foundCourse) {
-                    setErrorMsg('Curso no encontrado.');
+                    setErrorMsg(`Curso no encontrado. Slug buscado: ${slug}`);
                     return;
                 }
+
+                setCourseId(foundCourse.id);
 
                 // Cargar ejercicios del curso
                 const resExercises = await fetch(
@@ -131,12 +160,12 @@ const TherapistExerciseDetailPage: React.FC = () => {
                     if (found) {
                         setCourseExercise(found);
                     } else {
-                        setErrorMsg('Ejercicio no encontrado.');
+                        setErrorMsg(`Ejercicio no encontrado en el curso`);
                         return;
                     }
                 } else {
-                    console.error('Error obteniendo ejercicio:', await resExercises.text());
-                    setErrorMsg('No se pudo cargar el ejercicio.');
+                    const errorText = await resExercises.text();
+                    setErrorMsg(`No se pudo cargar el ejercicio: ${errorText}`);
                     return;
                 }
 
@@ -151,12 +180,12 @@ const TherapistExerciseDetailPage: React.FC = () => {
                     const data: SubmissionListItem[] = await resStudents.json();
                     setStudents(data);
                 } else {
-                    console.error('Error cargando estudiantes:', await resStudents.text());
+                    const errorText = await resStudents.text();
+                    setErrorMsg(`Error cargando estudiantes: ${errorText}`);
                 }
                 setLoadingStudents(false);
-            } catch (err) {
-                console.error('Error de red:', err);
-                setErrorMsg('Error de red al cargar los datos.');
+            } catch (err: any) {
+                setErrorMsg(`Error de red: ${err?.message || 'Error desconocido'}`);
             } finally {
                 setLoading(false);
             }
@@ -164,6 +193,90 @@ const TherapistExerciseDetailPage: React.FC = () => {
 
         loadData();
     }, [token, role, exerciseId, slug]);
+
+    // WebSocket handler para actualizar entregas y notificar cambios
+    const handleWebSocketMessage = useCallback((message: WebSocketMessage) => {
+        // Debounce: si hay un reload pendiente, cancelarlo
+        if (reloadTimeoutRef.current) {
+            clearTimeout(reloadTimeoutRef.current);
+        }
+
+        if (message.type === 'submission_created' || message.type === 'submission_updated') {
+            if (message.data?.course_exercise_id === Number(exerciseId)) {
+                // Recargar estudiantes después de 500ms
+                reloadTimeoutRef.current = setTimeout(() => {
+                    if (token) {
+                        fetch(
+                            `${API_BASE}/submissions/course-exercises/${exerciseId}/students`,
+                            { headers: { Authorization: `Bearer ${token}` } }
+                        )
+                            .then(res => res.json())
+                            .then((data: SubmissionListItem[]) => setStudents(data))
+                            .catch(() => {});
+                    }
+                }, 500);
+            }
+        } else if (message.type === 'submission_deleted') {
+            const data = message.data as any;
+            if (data.course_exercise_id === Number(exerciseId)) {
+                // Solo mostrar notificación si el modal de detalles está abierto
+                if (submissionDetailVisible && selectedSubmission?.student_id === data.student_id) {
+                    // Guardar info del estudiante cuya entrega fue anulada
+                    setCanceledStudentName(data.student_name || 'Estudiante');
+                    setSubmissionCanceledModal(true);
+                    
+                    // Cerrar el modal de detalles de entrega
+                    setSubmissionDetailVisible(false);
+                    setSelectedSubmission(null);
+                }
+                
+                // Siempre recargar estudiantes
+                if (token) {
+                    fetch(
+                        `${API_BASE}/submissions/course-exercises/${exerciseId}/students`,
+                        { headers: { Authorization: `Bearer ${token}` } }
+                    )
+                        .then(res => res.json())
+                        .then((data: SubmissionListItem[]) => setStudents(data))
+                        .catch(() => {});
+                }
+            }
+        }
+    }, [exerciseId, token, submissionDetailVisible, selectedSubmission]);
+
+    // Descargar PDF del ejercicio
+    const handleDownloadPdf = async () => {
+        if (!courseExercise?.exercise?.id || !token) {
+            setErrorMsg('Error al descargar el PDF.');
+            return;
+        }
+
+        setDownloadingPdf(true);
+        try {
+            const pdfUrl = await getExercisePdfUrl(courseExercise.exercise.id, token);
+            
+            // Descargar el PDF
+            const link = document.createElement('a');
+            link.href = pdfUrl;
+            link.download = `${courseExercise.exercise.name || 'ejercicio'}.pdf`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        } catch (err) {
+            console.error('Error descargando PDF:', err);
+            setErrorMsg('Error al descargar el PDF.');
+        } finally {
+            setDownloadingPdf(false);
+        }
+    };
+
+    // WebSocket connection
+    const { isConnected: wsConnected } = useWebSocket({
+        courseId,
+        token,
+        onMessage: handleWebSocketMessage,
+        enabled: !!courseId && !!token,
+    });
 
     // Cargar detalle de entrega cuando se selecciona un estudiante
     useEffect(() => {
@@ -175,20 +288,35 @@ const TherapistExerciseDetailPage: React.FC = () => {
             try {
                 setSubmissionDetailError(null);
                 setLoadingSubmissionDetail(true);
+                setSubmissionAudioUrl(null);
+                setSubmissionDetail(null);
+                
                 const res = await fetch(
                     `${API_BASE}/submissions/course-exercises/${selectedSubmission.course_exercise_id}/students/${selectedSubmission.student_id}`,
                     { headers: { Authorization: `Bearer ${token}` } }
                 );
                 if (!res.ok) {
-                    const text = await res.text();
-                    console.error('Error obteniendo detalle de entrega:', text);
-                    setSubmissionDetailError(text || 'No se pudo cargar el detalle de la entrega.');
+                    if (res.status === 404) {
+                        setSubmissionDetailError('Este estudiante no tiene entrega para este ejercicio o la ha anulado.');
+                    } else {
+                        const text = await res.text();
+                        setSubmissionDetailError(text || 'No se pudo cargar el detalle de la entrega.');
+                    }
                     return;
                 }
                 const data: SubmissionDetailOut = await res.json();
                 setSubmissionDetail(data);
+
+                // Obtener URL firmada si hay audio
+                if (data.submission.audio_path && token && data.submission.id) {
+                    try {
+                        const audioUrl = await getSubmissionAudioUrl(data.submission.id, token);
+                        setSubmissionAudioUrl(audioUrl);
+                    } catch (err) {
+                        setSubmissionDetailError('Error obteniendo audio de la entrega.');
+                    }
+                }
             } catch (err) {
-                console.error('Error de red al obtener detalle de entrega:', err);
                 setSubmissionDetailError('Error de red al cargar la entrega.');
             } finally {
                 setLoadingSubmissionDetail(false);
@@ -198,13 +326,14 @@ const TherapistExerciseDetailPage: React.FC = () => {
         loadDetail();
     }, [submissionDetailVisible, selectedSubmission, token, role]);
 
-    const getSubmissionAudioSrc = (sub?: SubmissionOut | null) => {
-        if (!sub?.audio_path) return null;
-        const normalized = sub.audio_path.replace(/\\/g, '/');
-        return sub.audio_path.startsWith('http')
-            ? sub.audio_path
-            : `${AUDIO_BASE_URL}/media/${normalized}`;
-    };
+    // Obtener URL firmada de audio del ejercicio
+    useEffect(() => {
+        if (courseExercise?.exercise?.id && token) {
+            getExerciseAudioUrl(courseExercise.exercise.id, token)
+                .then(url => setExerciseAudioUrl(url))
+                .catch(err => console.error('Error obteniendo URL de audio del ejercicio:', err));
+        }
+    }, [courseExercise?.exercise?.id, token]);
 
     if (loading) {
         return (
@@ -223,7 +352,7 @@ const TherapistExerciseDetailPage: React.FC = () => {
                 <div className="card p-4 border-round-2xl">
                     <h2 className="text-xl font-semibold mb-2">No se pudo cargar el ejercicio</h2>
                     <p className="text-600 m-0">
-                        Comprueba que has iniciado sesión como terapeuta y vuelve a intentarlo.
+                        {errorMsg || 'Comprueba que has iniciado sesión como terapeuta y vuelve a intentarlo.'}
                     </p>
                 </div>
             </div>
@@ -234,27 +363,78 @@ const TherapistExerciseDetailPage: React.FC = () => {
     const text = exercise?.text ?? '';
     const title = exercise?.name ?? 'Ejercicio';
 
-    let audioSrc: string | null = null;
-    if (exercise?.audio_path) {
-        const normalized = exercise.audio_path.replace(/\\/g, '/');
-        audioSrc = exercise.audio_path.startsWith('http')
-            ? exercise.audio_path
-            : `${AUDIO_BASE_URL}/media/${normalized}`;
-    }
+    // Aplicar filtros
+    const filteredStudents = students.filter((s) => {
+        // Filtro por nombre
+        if (nameFilter && !s.full_name.toLowerCase().includes(nameFilter.toLowerCase())) {
+            return false;
+        }
 
-    const studentsWithSubmission = students.filter(s => s.submission_id);
-    const studentsWithoutSubmission = students.filter(s => !s.submission_id);
+        // Filtro por email
+        if (emailFilter && !s.email.toLowerCase().includes(emailFilter.toLowerCase())) {
+            return false;
+        }
+
+        // Filtro por estado de entrega
+        if (statusFilter === 'submitted' && !s.submission_id) {
+            return false;
+        }
+        if (statusFilter === 'pending' && s.submission_id) {
+            return false;
+        }
+
+        // Filtro por audio
+        if (hasAudioFilter === 'with' && !s.has_audio) {
+            return false;
+        }
+        if (hasAudioFilter === 'without' && s.has_audio) {
+            return false;
+        }
+
+        // Filtro por fecha de entrega
+        if (s.submitted_at) {
+            const submittedDate = new Date(s.submitted_at);
+            if (submittedFrom && submittedDate < submittedFrom) {
+                return false;
+            }
+            if (submittedTo && submittedDate > submittedTo) {
+                return false;
+            }
+        }
+
+        return true;
+    });
+
+    // Paginación
+    const totalStudents = filteredStudents.length;
+    const startIndex = currentPage * pageSize;
+    const endIndex = startIndex + pageSize;
+    const paginatedStudents = filteredStudents.slice(startIndex, endIndex);
+
+    const studentsWithSubmission = paginatedStudents.filter(s => s.submission_id);
+    const studentsWithoutSubmission = paginatedStudents.filter(s => !s.submission_id);
 
     return (
         <div className="surface-ground p-3 md:p-4" style={{ minHeight: '60vh' }}>
-            {/* Barra superior: volver */}
-            <div className="flex justify-content-between align-items-center mb-3">
+            
+            {/* Barra superior: volver + descargar */}
+            <div className="flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
                 <Button
                     type="button"
                     icon="pi pi-arrow-left"
                     className="p-button-text p-button-rounded"
                     label="Volver al curso"
                     onClick={() => router.push(`/courses/${slug}`)}
+                />
+
+                <Button
+                    type="button"
+                    icon="pi pi-download"
+                    className="p-button-text p-button-rounded"
+                    label="Descargar PDF"
+                    loading={downloadingPdf}
+                    disabled={downloadingPdf}
+                    onClick={handleDownloadPdf}
                 />
 
                 <div className="flex align-items-center gap-2">
@@ -297,7 +477,7 @@ const TherapistExerciseDetailPage: React.FC = () => {
             {/* Contenido principal */}
             <div className="flex flex-column lg:flex-row gap-3">
                 {/* Columna izquierda: Texto + Audio */}
-                <div className="flex-1 flex flex-column gap-3">
+                <div className="flex-1 flex flex-column gap-3" style={{ minWidth: 0 }}>
                     <div className="card">
                         <div className="flex justify-content-between align-items-center mb-3">
                             <h3 className="text-lg font-semibold m-0">Texto del ejercicio</h3>
@@ -327,23 +507,159 @@ const TherapistExerciseDetailPage: React.FC = () => {
                         )}
                     </div>
 
-                    {audioSrc && (
+                    {courseExercise.exercise?.audio_path && (
                         <div className="card">
                             <h3 className="text-lg font-semibold mb-2">Audio de referencia</h3>
-                            <AudioPlayer src={audioSrc} />
+                            {exerciseAudioUrl ? (
+                                <AudioPlayer 
+                                    src={exerciseAudioUrl} 
+                                    exerciseId={courseExercise.exercise.id}
+                                    token={token}
+                                    exerciseName={courseExercise.exercise.name}
+                                />
+                            ) : (
+                                <div className="text-center p-3">
+                                    <i className="pi pi-spin pi-spinner" style={{ fontSize: '2rem' }} />
+                                    <p className="text-sm text-600 mt-2">Cargando audio...</p>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
 
                 {/* Columna derecha: Lista de entregas */}
-                <div className="card" style={{ width: '100%', maxWidth: '520px', alignSelf: 'flex-start' }}>
-                    <h3 className="text-lg font-semibold mb-3">Entregas de estudiantes</h3>
+                <div className="card flex-1" style={{ alignSelf: 'flex-start', minWidth: 0 }}>
+                    <div className="flex justify-content-between align-items-center mb-3">
+                        <h3 className="text-lg font-semibold m-0">Entregas de estudiantes</h3>
+                        {students.length > 0 && (
+                            <Button
+                                label={showFilters ? 'Ocultar filtros' : 'Mostrar filtros'}
+                                icon={showFilters ? 'pi pi-eye-slash' : 'pi pi-filter'}
+                                className="p-button-text p-button-sm"
+                                onClick={() => setShowFilters(!showFilters)}
+                            />
+                        )}
+                    </div>
+
+                    {/* Filtros */}
+                    {showFilters && students.length > 0 && (
+                        <div className="surface-50 border-round-lg p-3 mb-3">
+                            <h4 className="text-sm font-semibold mb-3">Filtros</h4>
+                            <div className="flex flex-column gap-3">
+                                <div>
+                                    <label className="block text-xs font-medium mb-2">Nombre</label>
+                                    <InputText
+                                        value={nameFilter}
+                                        onChange={(e) => {
+                                            setNameFilter(e.target.value);
+                                            setCurrentPage(0);
+                                        }}
+                                        placeholder="Buscar por nombre"
+                                        className="w-full"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-medium mb-2">Email</label>
+                                    <InputText
+                                        value={emailFilter}
+                                        onChange={(e) => {
+                                            setEmailFilter(e.target.value);
+                                            setCurrentPage(0);
+                                        }}
+                                        placeholder="Buscar por email"
+                                        className="w-full"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-medium mb-2">Estado</label>
+                                    <Dropdown
+                                        value={statusFilter}
+                                        onChange={(e) => {
+                                            setStatusFilter(e.value);
+                                            setCurrentPage(0);
+                                        }}
+                                        options={[
+                                            { label: 'Todos', value: 'all' },
+                                            { label: 'Con entrega', value: 'submitted' },
+                                            { label: 'Sin entrega', value: 'pending' }
+                                        ]}
+                                        placeholder="Seleccionar"
+                                        className="w-full"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-medium mb-2">Con audio</label>
+                                    <Dropdown
+                                        value={hasAudioFilter}
+                                        onChange={(e) => {
+                                            setHasAudioFilter(e.value);
+                                            setCurrentPage(0);
+                                        }}
+                                        options={[
+                                            { label: 'Todos', value: 'all' },
+                                            { label: 'Con audio', value: 'with' },
+                                            { label: 'Sin audio', value: 'without' }
+                                        ]}
+                                        placeholder="Seleccionar"
+                                        className="w-full"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-medium mb-2">Entregado desde</label>
+                                    <Calendar
+                                        value={submittedFrom}
+                                        onChange={(e) => {
+                                            setSubmittedFrom(e.value as Date | null);
+                                            setCurrentPage(0);
+                                        }}
+                                        showIcon
+                                        dateFormat="dd/mm/yy"
+                                        placeholder="Fecha inicial"
+                                        className="w-full"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-medium mb-2">Entregado hasta</label>
+                                    <Calendar
+                                        value={submittedTo}
+                                        onChange={(e) => {
+                                            setSubmittedTo(e.value as Date | null);
+                                            setCurrentPage(0);
+                                        }}
+                                        showIcon
+                                        dateFormat="dd/mm/yy"
+                                        placeholder="Fecha final"
+                                        className="w-full"
+                                    />
+                                </div>
+                                <div>
+                                    <Button
+                                        label="Limpiar filtros"
+                                        icon="pi pi-filter-slash"
+                                        className="p-button-text p-button-sm w-full"
+                                        onClick={() => {
+                                            setNameFilter('');
+                                            setEmailFilter('');
+                                            setStatusFilter('all');
+                                            setHasAudioFilter('all');
+                                            setSubmittedFrom(null);
+                                            setSubmittedTo(null);
+                                            setCurrentPage(0);
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {loadingStudents ? (
                         <p className="text-center text-600">Cargando entregas...</p>
                     ) : students.length === 0 ? (
                         <p className="text-center text-600">No hay estudiantes inscritos en este curso.</p>
+                    ) : filteredStudents.length === 0 ? (
+                        <p className="text-center text-600">No hay estudiantes que coincidan con los filtros.</p>
                     ) : (
+                        <>
                         <div className="flex flex-column gap-2">
                             {/* Estudiantes con entrega */}
                             {studentsWithSubmission.length > 0 && (
@@ -404,6 +720,20 @@ const TherapistExerciseDetailPage: React.FC = () => {
                                 </>
                             )}
                         </div>
+
+                        {/* Paginación */}
+                        <Paginator
+                            first={currentPage * pageSize}
+                            rows={pageSize}
+                            totalRecords={totalStudents}
+                            rowsPerPageOptions={[5, 10, 20, 50]}
+                            onPageChange={(e: PaginatorPageChangeEvent) => {
+                                setCurrentPage(e.page);
+                                setPageSize(e.rows);
+                            }}
+                            className="mt-3"
+                        />
+                        </>
                     )}
                 </div>
             </div>
@@ -464,10 +794,17 @@ const TherapistExerciseDetailPage: React.FC = () => {
                             </div>
                         </div>
 
-                        {submissionDetail.submission.audio_path && (
+                        {submissionDetail?.submission.audio_path && (
                             <div className="surface-50 border-round-lg p-3">
                                 <h4 className="text-base font-semibold mb-2">Audio de la entrega</h4>
-                                <AudioPlayer src={getSubmissionAudioSrc(submissionDetail.submission) || ''} />
+                                {submissionAudioUrl ? (
+                                    <AudioPlayer src={submissionAudioUrl} />
+                                ) : (
+                                    <div className="text-center p-3">
+                                        <i className="pi pi-spin pi-spinner" style={{ fontSize: '2rem' }} />
+                                        <p className="text-sm text-600 mt-2">Cargando audio...</p>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>
@@ -483,6 +820,27 @@ const TherapistExerciseDetailPage: React.FC = () => {
                 onHide={() => setErrorMsg(null)}
             >
                 <p>{errorMsg}</p>
+            </Dialog>
+
+            {/* Modal: Entrega anulada */}
+            <Dialog
+                header="Entrega anulada"
+                visible={submissionCanceledModal}
+                modal
+                style={{ width: '26rem', maxWidth: '95vw' }}
+                onHide={() => setSubmissionCanceledModal(false)}
+            >
+                <div className="flex flex-column align-items-center gap-3 py-3">
+                    <i className="pi pi-info-circle text-orange-500" style={{ fontSize: '3rem' }} />
+                    <p className="text-center m-0">
+                        {canceledStudentName} ha anulado su entrega. El modal de detalle se ha cerrado.
+                    </p>
+                    <Button
+                        label="Aceptar"
+                        className="w-full"
+                        onClick={() => setSubmissionCanceledModal(false)}
+                    />
+                </div>
             </Dialog>
         </div>
     );

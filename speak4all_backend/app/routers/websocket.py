@@ -32,6 +32,7 @@ async def websocket_course_endpoint(
         user = await get_current_user_ws(token, db)
     except Exception as e:
         logger.error(f"WebSocket authentication failed: {e}")
+        db.close()  # Asegurar que se cierre la conexión
         await websocket.close(code=1008)  # Policy violation
         return
 
@@ -43,6 +44,7 @@ async def websocket_course_endpoint(
 
     if not course:
         logger.warning(f"Course {course_id} not found")
+        db.close()  # Asegurar que se cierre la conexión
         await websocket.close(code=1008)
         return
 
@@ -62,8 +64,12 @@ async def websocket_course_endpoint(
 
     if not has_access:
         logger.warning(f"User {user.id} has no access to course {course_id}")
+        db.close()  # Asegurar que se cierre la conexión
         await websocket.close(code=1008)
         return
+
+    # Cerrar la DB session después de validación, no la necesitamos en el loop
+    db.close()
 
     # Connect client
     await manager.connect(websocket, course_id)

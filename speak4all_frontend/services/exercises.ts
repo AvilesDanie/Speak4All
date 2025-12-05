@@ -117,3 +117,27 @@ export function createExercise(token: string, name: string, text: string, marked
     }),
   });
 }
+
+export async function getExerciseAudioUrl(exerciseId: number, token: string): Promise<string> {
+  const data = await fetchJSON<{ url: string }>(`/exercises/${exerciseId}/audio-url`, { 
+    token, 
+    method: 'GET' 
+  });
+  return data.url;
+}
+
+export async function getSubmissionAudioUrl(submissionId: number, token: string): Promise<string> {
+  const data = await fetchJSON<{ url: string }>(`/submissions/${submissionId}/audio-url`, { 
+    token, 
+    method: 'GET' 
+  });
+  return data.url;
+}
+
+export async function getExercisePdfUrl(exerciseId: number, token: string): Promise<string> {
+  const data = await fetchJSON<{ url: string }>(`/exercises/${exerciseId}/pdf-url`, { 
+    token, 
+    method: 'GET' 
+  });
+  return data.url;
+}

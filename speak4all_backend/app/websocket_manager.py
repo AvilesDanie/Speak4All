@@ -68,11 +68,11 @@ class ConnectionManager:
             "data": course_exercise_data
         })
 
-    async def broadcast_exercise_deleted(self, course_id: int, course_exercise_id: int):
+    async def broadcast_exercise_deleted(self, course_id: int, data: dict):
         """Broadcast when an exercise is removed from a course"""
         await self.broadcast_to_course(course_id, {
             "type": "exercise_deleted",
-            "data": {"course_exercise_id": course_exercise_id}
+            "data": data,
         })
 
     async def broadcast_submission_created(self, course_id: int, submission_data: dict):

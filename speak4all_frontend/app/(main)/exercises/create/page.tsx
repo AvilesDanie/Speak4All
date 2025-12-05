@@ -16,6 +16,7 @@ import {
     getMyExercises,
     generateExercisePreview,
     createExercise,
+    getExerciseAudioUrl,
 } from '@/services/exercises';
 
 const AUDIO_BASE_URL = API_BASE;
@@ -47,12 +48,13 @@ const CreateExercisePage: React.FC = () => {
 
     const [myExercises, setMyExercises] = useState<ExerciseOut[]>([]);
     const [loadingExercises, setLoadingExercises] = useState(false);
+    const [detailExercise, setDetailExercise] = useState<ExerciseOut | null>(null);
+    const [detailAudioUrl, setDetailAudioUrl] = useState<string | null>(null);
 
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
     // 🔍 estado para detalles
-    const [detailExercise, setDetailExercise] = useState<ExerciseOut | null>(null);
     const [detailVisible, setDetailVisible] = useState(false);
 
     // 🔍 búsqueda de ejercicios
@@ -212,9 +214,20 @@ const CreateExercisePage: React.FC = () => {
         }
     };
 
-    const openDetails = (exercise: ExerciseOut) => {
+    const openDetails = async (exercise: ExerciseOut) => {
         setDetailExercise(exercise);
         setDetailVisible(true);
+        setDetailAudioUrl(null);
+        
+        // Obtener URL firmada si hay audio
+        if (exercise.audio_path && token) {
+            try {
+                const url = await getExerciseAudioUrl(exercise.id, token);
+                setDetailAudioUrl(url);
+            } catch (err) {
+                console.error('Error obteniendo URL de audio:', err);
+            }
+        }
     };
 
     if (role && role !== 'THERAPIST') {
@@ -605,19 +618,19 @@ const CreateExercisePage: React.FC = () => {
                             </div>
                         </div>
 
-                        {detailExercise.audio_path && (() => {
-                            const normalizedPath = detailExercise.audio_path.replace(/\\/g, '/');
-                            const src = detailExercise.audio_path.startsWith('http')
-                                ? detailExercise.audio_path
-                                : `${AUDIO_BASE_URL}/media/${normalizedPath}`;
-
-                            return (
-                                <div>
-                                    <h4 className="text-sm text-600 mb-1">Audio generado</h4>
-                                    <AudioPlayer src={src} />
-                                </div>
-                            );
-                        })()}
+                        {detailExercise.audio_path && (
+                            <div>
+                                <h4 className="text-sm text-600 mb-1">Audio generado</h4>
+                                {detailAudioUrl ? (
+                                    <AudioPlayer src={detailAudioUrl} />
+                                ) : (
+                                    <div className="text-center p-3">
+                                        <i className="pi pi-spin pi-spinner" style={{ fontSize: '2rem' }} />
+                                        <p className="text-sm text-600 mt-2">Cargando audio...</p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
 
 

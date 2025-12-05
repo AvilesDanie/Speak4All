@@ -21,6 +21,8 @@ import {
     createFolder,
     deleteExercise as apiDeleteExercise,
     deleteFolder as apiDeleteFolder,
+    getExerciseAudioUrl,
+    getExercisePdfUrl,
 } from '@/services/exercises';
 import { API_BASE } from '@/services/apiClient';
 
@@ -55,9 +57,11 @@ const ExerciseListPage: React.FC = () => {
 
     const [detailVisible, setDetailVisible] = useState(false);
     const [detailExercise, setDetailExercise] = useState<ExerciseOut | null>(null);
+    const [detailAudioUrl, setDetailAudioUrl] = useState<string | null>(null);
     const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
     const [exerciseToDelete, setExerciseToDelete] = useState<ExerciseOut | null>(null);
     const [deleting, setDeleting] = useState(false);
+    const [downloadingPdf, setDownloadingPdf] = useState(false);
     const router = useRouter();
 
     // Asignación de carpeta (modal)
@@ -146,9 +150,20 @@ const ExerciseListPage: React.FC = () => {
         );
     }, [search, exercises, folderFilter]);
 
-    const openDetails = (exercise: ExerciseOut) => {
+    const openDetails = async (exercise: ExerciseOut) => {
         setDetailExercise(exercise);
         setDetailVisible(true);
+        setDetailAudioUrl(null);
+        
+        // Obtener URL firmada si hay audio
+        if (exercise.audio_path && token) {
+            try {
+                const url = await getExerciseAudioUrl(exercise.id, token);
+                setDetailAudioUrl(url);
+            } catch (err) {
+                console.error('Error obteniendo URL de audio:', err);
+            }
+        }
     };
 
     const handleDeleteExercise = async () => {
@@ -186,6 +201,31 @@ const ExerciseListPage: React.FC = () => {
             setUpdatingFolder(false);
         }
     };
+
+    const handleDownloadPdf = async (exercise: ExerciseOut) => {
+        if (!token) {
+            alert('Error al descargar el PDF.');
+            return;
+        }
+
+        setDownloadingPdf(true);
+        try {
+            const pdfUrl = await getExercisePdfUrl(exercise.id, token);
+            
+            // Descargar el PDF
+            const link = document.createElement('a');
+            link.href = pdfUrl;
+            link.download = `${exercise.name || 'ejercicio'}.pdf`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        } catch (err) {
+            console.error('Error descargando PDF:', err);
+            alert('Error al descargar el PDF.');
+        } finally {
+            setDownloadingPdf(false);
+        }
+    };;
 
     const handleCreateFolder = async () => {
         if (!token || !newFolderName.trim()) return;
@@ -536,6 +576,27 @@ const ExerciseListPage: React.FC = () => {
             >
                 {detailExercise && (
                     <div className="flex flex-column gap-3">
+                        <div className="flex gap-2">
+                            <Button
+                                icon="pi pi-download"
+                                label="Descargar PDF"
+                                loading={downloadingPdf}
+                                disabled={downloadingPdf}
+                                onClick={() => handleDownloadPdf(detailExercise)}
+                                className="flex-1"
+                            />
+                            <Button
+                                icon="pi pi-trash"
+                                label="Eliminar"
+                                className="p-button-danger flex-1"
+                                onClick={() => {
+                                    setExerciseToDelete(detailExercise);
+                                    setDetailVisible(false);
+                                    setDeleteConfirmVisible(true);
+                                }}
+                            />
+                        </div>
+
                         <div>
                             <p className="m-0 text-600 text-sm">
                                 Creado:{' '}
@@ -586,19 +647,24 @@ const ExerciseListPage: React.FC = () => {
                             </div>
                         </div>
 
-                        {detailExercise.audio_path && (() => {
-                            const normalizedPath = detailExercise.audio_path.replace(/\\/g, '/');
-                            const src = detailExercise.audio_path.startsWith('http')
-                                ? detailExercise.audio_path
-                                : `${AUDIO_BASE_URL}/media/${normalizedPath}`;
-
-                            return (
-                                <div>
-                                    <h4 className="text-sm text-600 mb-1">Audio generado</h4>
-                                    <AudioPlayer src={src} />
-                                </div>
-                            );
-                        })()}
+                        {detailExercise.audio_path && (
+                            <div>
+                                <h4 className="text-sm text-600 mb-1">Audio generado</h4>
+                                {detailAudioUrl ? (
+                                    <AudioPlayer 
+                                        src={detailAudioUrl} 
+                                        exerciseId={detailExercise.id}
+                                        token={token || undefined}
+                                        exerciseName={detailExercise.name}
+                                    />
+                                ) : (
+                                    <div className="text-center p-3">
+                                        <i className="pi pi-spin pi-spinner" style={{ fontSize: '2rem' }} />
+                                        <p className="text-sm text-600 mt-2">Cargando audio...</p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                 )}
             </Dialog>

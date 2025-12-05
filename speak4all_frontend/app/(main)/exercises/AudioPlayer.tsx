@@ -2,10 +2,14 @@ import { Slider } from 'primereact/slider';
 import { Dropdown } from 'primereact/dropdown';
 import { Button } from 'primereact/button';
 import React, { useEffect, useRef, useState } from 'react';
+import { API_BASE } from '@/services/apiClient';
 
 
 interface AudioPlayerProps {
     src: string;
+    exerciseId?: number;
+    token?: string;
+    exerciseName?: string;
 }
 
 const formatTime = (seconds: number): string => {
@@ -25,7 +29,7 @@ const speedOptions = [
     { label: '2x', value: 2 },
 ];
 
-const AudioPlayer: React.FC<AudioPlayerProps> = ({ src }) => {
+const AudioPlayer: React.FC<AudioPlayerProps> = ({ src, exerciseId, token, exerciseName }) => {
     const audioRef = useRef<HTMLAudioElement | null>(null);
 
     const [isPlaying, setIsPlaying] = useState(false);
@@ -48,29 +52,67 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src }) => {
 
     const downloadFile = async () => {
         try {
-            const response = await fetch(src, {
-                // si tu endpoint requiere auth, aquí pondrías headers
-                // headers: { Authorization: `Bearer ${token}` }
-            });
+            // Use exercise name for filename if available
+            let filename = exerciseName 
+                ? `${exerciseName}.mp3` 
+                : 'audio.mp3';
 
-            if (!response.ok) {
-                console.error('Error descargando audio:', response.statusText);
-                return;
+            // Use the backend endpoint if exerciseId and token are available
+            let downloadUrl = src;
+            if (exerciseId && token) {
+                downloadUrl = `${API_BASE}/exercises/${exerciseId}/audio-download`;
+                
+                // Fetch from backend endpoint
+                const response = await fetch(downloadUrl, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const blob = await response.blob();
+                
+                // Create a blob URL and trigger download
+                const blobUrl = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = blobUrl;
+                link.download = filename;
+                link.style.display = 'none';
+                
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+                // Clean up the blob URL
+                window.URL.revokeObjectURL(blobUrl);
+            } else {
+                // Fallback: direct download from URL
+                const response = await fetch(src);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const blob = await response.blob();
+                
+                // Create a blob URL and trigger download
+                const blobUrl = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = blobUrl;
+                link.download = filename;
+                link.style.display = 'none';
+                
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+                // Clean up the blob URL
+                window.URL.revokeObjectURL(blobUrl);
             }
-
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
-
-            const link = document.createElement("a");
-            link.href = url;
-            link.download = src.split("/").pop() || "audio.mp3";
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-
-            window.URL.revokeObjectURL(url);
         } catch (err) {
-            console.error('Error en descarga:', err);
+            console.error('Error descargando audio:', err);
         }
     };
 

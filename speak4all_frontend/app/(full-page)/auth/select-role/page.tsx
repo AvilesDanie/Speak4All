@@ -2,13 +2,22 @@
 
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { Dialog } from 'primereact/dialog';
+import { Button } from 'primereact/button';
+import { Password } from 'primereact/password';
 
 type Role = 'THERAPIST' | 'STUDENT';
 
 export default function SelectRolePage() {
     const router = useRouter();
     const { data: session, status } = useSession();
+    const [selectedRole, setSelectedRole] = useState<Role | null>(null);
+    const [showPasswordDialog, setShowPasswordDialog] = useState(false);
+    const [password, setPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
+    const [passwordError, setPasswordError] = useState<string | null>(null);
+    const [registering, setRegistering] = useState(false);
 
     // Si no está autenticado, mándalo al login
     useEffect(() => {
@@ -18,10 +27,37 @@ export default function SelectRolePage() {
         }
     }, [status, router]);
 
-    const handleSelect = async (role: Role) => {
-        if (!session) return;
+    const handleSelectRole = (role: Role) => {
+        setSelectedRole(role);
+        setShowPasswordDialog(true);
+        setPassword('');
+        setConfirmPassword('');
+        setPasswordError(null);
+    };
+
+    const handleRegisterWithPassword = async () => {
+        setPasswordError(null);
+
+        // Validación de contraseñas
+        if (!password) {
+            setPasswordError('Por favor ingresa una contraseña');
+            return;
+        }
+
+        if (password !== confirmPassword) {
+            setPasswordError('Las contraseñas no coinciden');
+            return;
+        }
+
+        if (password.length < 6) {
+            setPasswordError('La contraseña debe tener al menos 6 caracteres');
+            return;
+        }
+
+        if (!session || !selectedRole) return;
 
         try {
+            setRegistering(true);
             const googleSub = (session as any).google_sub;
 
             const res = await fetch('/api/backend/auth/google', {
@@ -31,7 +67,50 @@ export default function SelectRolePage() {
                     google_sub: googleSub,
                     email: session.user?.email,
                     full_name: session.user?.name,
-                    role,
+                    role: selectedRole,
+                    password: password,
+                }),
+            });
+
+            if (!res.ok) {
+                const errorData = await res.json().catch(() => ({ detail: 'Error al registrar' }));
+                setPasswordError(errorData.detail || 'Error al registrar');
+                return;
+            }
+
+            const data = await res.json();
+
+            if (typeof window !== 'undefined') {
+                localStorage.setItem('backend_synced', 'true');
+                localStorage.setItem('backend_token', data.token.access_token);
+                localStorage.setItem('backend_user', JSON.stringify(data.user));
+            }
+
+            router.push('/');
+        } catch (err) {
+            console.error('Error en handleRegisterWithPassword:', err);
+            setPasswordError('Error de red. Intenta nuevamente.');
+        } finally {
+            setRegistering(false);
+        }
+    };
+
+    const handleSkipPassword = async () => {
+        if (!session || !selectedRole) return;
+
+        try {
+            setRegistering(true);
+            const googleSub = (session as any).google_sub;
+
+            const res = await fetch('/api/backend/auth/google', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    google_sub: googleSub,
+                    email: session.user?.email,
+                    full_name: session.user?.name,
+                    role: selectedRole,
+                    // Sin contraseña
                 }),
             });
 
@@ -50,7 +129,9 @@ export default function SelectRolePage() {
 
             router.push('/');
         } catch (err) {
-            console.error('Error en handleSelect:', err);
+            console.error('Error en handleSkipPassword:', err);
+        } finally {
+            setRegistering(false);
         }
     };
 
@@ -116,7 +197,7 @@ export default function SelectRolePage() {
                     {roles.map((role) => (
                         <div key={role.key} className="col-12 md:col-6">
                             <div
-                                onClick={() => handleSelect(role.key)}
+                                onClick={() => handleSelectRole(role.key)}
                                 className="h-full cursor-pointer transition-all border-round-2xl shadow-1 hover:shadow-4"
                                 style={{
                                     border: '2px solid transparent',
@@ -180,6 +261,73 @@ export default function SelectRolePage() {
                         </div>
                     ))}
                 </div>
+
+                {/* Modal de contraseña */}
+                <Dialog
+                    header="Configurar contraseña (opcional)"
+                    visible={showPasswordDialog}
+                    onHide={() => {
+                        setShowPasswordDialog(false);
+                        setSelectedRole(null);
+                    }}
+                    modal
+                    style={{ width: '26rem', maxWidth: '95vw' }}
+                >
+                    <div className="flex flex-column gap-3">
+                        <div>
+                            <label className="block text-sm font-medium mb-2">Contraseña</label>
+                            <Password
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                placeholder="Ingresa una contraseña (opcional)"
+                                toggleMask
+                                className="w-full"
+                                inputClassName="w-full"
+                            />
+                            <p className="text-xs text-600 mt-1">
+                                Mínimo 6 caracteres. Si omites esto, solo podrás ingresar con Google.
+                            </p>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium mb-2">Confirmar contraseña</label>
+                            <Password
+                                value={confirmPassword}
+                                onChange={(e) => setConfirmPassword(e.target.value)}
+                                placeholder="Confirma tu contraseña"
+                                toggleMask
+                                className="w-full"
+                                inputClassName="w-full"
+                                feedback={false}
+                            />
+                        </div>
+
+                        {passwordError && (
+                            <div
+                                className="border-round-lg p-3 text-sm"
+                                style={{ background: '#fee2e2', color: '#991b1b' }}
+                            >
+                                {passwordError}
+                            </div>
+                        )}
+
+                        <div className="flex gap-2 justify-content-end">
+                            <Button
+                                label="Omitir"
+                                severity="secondary"
+                                onClick={handleSkipPassword}
+                                loading={registering}
+                                disabled={registering}
+                            />
+                            <Button
+                                label="Continuar"
+                                onClick={handleRegisterWithPassword}
+                                loading={registering}
+                                disabled={registering || !password || !confirmPassword}
+                            />
+                        </div>
+                    </div>
+                </Dialog>
             </div>
         </div>
     );

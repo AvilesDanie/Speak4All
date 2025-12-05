@@ -140,6 +140,7 @@ export interface StudentExerciseStatus {
   due_date?: string | null;
   status: SubmissionStatus;
   submitted_at?: string | null;
+  has_audio?: boolean;
 }
 
 export function getCourseJoinRequests(token: string, courseId: number) {
