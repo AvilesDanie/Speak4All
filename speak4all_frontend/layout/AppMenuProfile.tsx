@@ -30,10 +30,20 @@ const AppMenuProfile = () => {
             const token = window.localStorage.getItem('backend_token');
             const cachedUserRaw = window.localStorage.getItem('backend_user');
 
+            console.log('[AppMenuProfile] Loading user with token:', !!token);
+
+            // Si no hay token, limpiar el estado
+            if (!token) {
+                setUser(null);
+                setAvatarUrl(null);
+                return;
+            }
+
             // Set cached data first for instant paint
             if (cachedUserRaw) {
                 try {
                     const cachedUser = JSON.parse(cachedUserRaw) as UserProfile;
+                    console.log('[AppMenuProfile] Cached user:', cachedUser.full_name, 'avatar_path:', cachedUser.avatar_path);
                     setUser(cachedUser);
                     setAvatarUrl(buildAvatarUrl(cachedUser.avatar_path));
                 } catch (err) {
@@ -41,10 +51,9 @@ const AppMenuProfile = () => {
                 }
             }
 
-            if (!token) return;
-
             try {
                 const freshUser = await getMyProfile(token);
+                console.log('[AppMenuProfile] Fresh user loaded:', freshUser.full_name, 'avatar_path:', freshUser.avatar_path);
                 setUser(freshUser);
 
                 // Persist refreshed user data
@@ -52,14 +61,46 @@ const AppMenuProfile = () => {
 
                 // Prefer dedicated avatar endpoint if available
                 const avatarData = await getMyAvatarUrl(token).catch(() => null);
+                console.log('[AppMenuProfile] Avatar data from endpoint:', avatarData);
                 const url = avatarData?.url ? buildAvatarUrl(avatarData.url) : buildAvatarUrl(freshUser.avatar_path);
+                console.log('[AppMenuProfile] Final avatar URL:', url);
                 setAvatarUrl(url);
             } catch (err) {
                 console.error('Error loading profile for menu:', err);
+                // Si falla la llamada, limpiar el estado
+                setUser(null);
+                setAvatarUrl(null);
             }
         };
 
         loadUser();
+
+        // Escuchar cambios en el storage (cuando se inicia/cierra sesión)
+        const handleStorageChange = (e: StorageEvent) => {
+            if (e.key === 'backend_token' || e.key === 'backend_user') {
+                loadUser();
+            }
+        };
+
+        // Escuchar evento personalizado de logout
+        const handleLogout = () => {
+            setUser(null);
+            setAvatarUrl(null);
+        };
+
+        const handleLogin = () => {
+            loadUser();
+        };
+
+        window.addEventListener('storage', handleStorageChange);
+        window.addEventListener('user-logout', handleLogout);
+        window.addEventListener('user-login', handleLogin);
+        
+        return () => {
+            window.removeEventListener('storage', handleStorageChange);
+            window.removeEventListener('user-logout', handleLogout);
+            window.removeEventListener('user-login', handleLogin);
+        };
     }, []);
 
     useEffect(() => {
@@ -91,13 +132,13 @@ const AppMenuProfile = () => {
                 <Tooltip target={'.avatar-button'} content={tooltipValue('Mi Perfil') as string} />
                 <button className="avatar-button p-link border-noround" onClick={handleProfileClick}>
                     {avatarUrl ? (
-                        <img src={avatarUrl} alt="avatar" style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover' }} />
+                        <img src={avatarUrl} alt="avatar" className="avatar-image" />
                     ) : (
-                        <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'var(--primary-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 'bold' }}>
+                        <div className="avatar-placeholder">
                             {user?.full_name?.charAt(0).toUpperCase() || 'U'}
                         </div>
                     )}
-                    <span>
+                    <span className="layout-menu-profile-text">
                         <strong>{user?.full_name || 'Usuario'}</strong>
                         <small>{user?.role ? getRoleLabel(user.role) : 'Cargando...'}</small>
                     </span>

@@ -77,7 +77,7 @@ export function NotificationBell() {
         icon="pi pi-bell"
         className="p-button-rounded p-button-text"
         onClick={() => setVisible(true)}
-        style={{ position: 'relative', color: 'white' }}
+        style={{ position: 'relative', color: 'var(--topbar-item-text-color)' }}
       >
         {unreadCount > 0 && (
           <span

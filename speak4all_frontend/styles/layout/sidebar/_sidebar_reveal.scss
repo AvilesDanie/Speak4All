@@ -84,6 +84,57 @@
             }
     
             .layout-menu-profile {
+                > button {
+                    display: flex;
+                    width: 100%;
+                    align-items: center;
+                    padding: 0;
+                    color: var(--menuitem-text-color);
+                    background-color: transparent;
+                    border: none;
+                    cursor: pointer;
+                    transition: background-color var(--transition-duration);
+                    height: 2.92rem;
+                    
+                    .avatar-image,
+                    .avatar-placeholder {
+                        order: 1;
+                        width: 2.5rem;
+                        height: 2.5rem;
+                        flex-shrink: 0;
+                        border-radius: 50%;
+                        margin-right: 0.75rem;
+                        
+                        &.avatar-image {
+                            object-fit: cover;
+                        }
+                        
+                        &.avatar-placeholder {
+                            background-color: var(--primary-color);
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            color: white;
+                            font-weight: bold;
+                            font-size: 1rem;
+                        }
+                    }
+                    
+                    span {
+                        order: 0;
+                        display: flex;
+                        flex-direction: column;
+                        margin-left: 0.75rem;
+                        margin-right: auto;
+                        opacity: 0;
+                        white-space: nowrap;
+                        transition: all 0.1s;
+                    }
+                    
+                    &:hover {
+                        background-color: var(--menuitem-hover-bg);
+                    }
+                }
                 > ul {        
                     > li {
                         > button {
@@ -152,6 +203,58 @@
                             a {
                                 .layout-submenu-toggler {
                                     display: block;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                .layout-menu-profile {
+                    position: static;
+                    width: 100%;
+                    bottom: auto;
+                    left: auto;
+                    z-index: auto;
+                    border-right: none;
+                    background: var(--menu-bg);
+                    border-top: 1px solid var(--surface-border);
+                    
+                    > button {
+                        padding: 0;
+                        width: 100%;
+                        height: 2.92rem;
+                        display: flex;
+                        align-items: center;
+                        justify-content: flex-start;
+                        flex-direction: row;
+                        
+                        .avatar-image,
+                        .avatar-placeholder {
+                            order: 1;
+                            width: 2.5rem;
+                            height: 2.5rem;
+                            margin-left: auto;
+                            margin-right: 0.75rem;
+                        }
+                        
+                        span {
+                            order: 0;
+                            display: flex;
+                            flex-direction: column;
+                            margin-left: 0.75rem;
+                            margin-right: auto;
+                            opacity: 1;
+                            white-space: nowrap;
+                            transition: all 0.1s;
+                        }
+                    }
+                    > ul {
+                        > li {
+                            > button {
+                                > i {
+                                    margin-right: 0.5rem;
+                                    font-size: 1.25rem;
+                                    width: auto;
                                 }
                             }
                         }

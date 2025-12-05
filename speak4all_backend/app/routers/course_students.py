@@ -8,6 +8,7 @@ from sqlalchemy import func, case
 from ..database import get_db
 from .. import models, schemas
 from ..deps import get_current_user
+from ..services import storage
 
 router = APIRouter()
 
@@ -116,12 +117,21 @@ def list_course_students_progress(
     result: list[schemas.StudentProgressSummary] = []
     for cs_row, user in cs:
         done_count, last_at = done_map.get(user.id, (0, None))
+        
+        # Generar URL firmada para el avatar si existe
+        avatar_url = None
+        if user.avatar_path:
+            try:
+                avatar_url = storage.generate_signed_url(user.avatar_path, minutes=60)
+            except Exception:
+                avatar_url = None
+        
         result.append(
             schemas.StudentProgressSummary(
                 student_id=user.id,
                 full_name=user.full_name,
                 email=user.email,
-                avatar_path=user.avatar_path,
+                avatar_path=avatar_url,  # Ahora es una URL firmada
                 total_exercises=total_ex,
                 done_exercises=done_count,
                 last_submission_at=last_at,

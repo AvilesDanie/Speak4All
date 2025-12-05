@@ -165,14 +165,40 @@
                 > button {
                     width: 3rem;
                     height: 3rem;
-                    padding: 0;
+                    padding: 0 !important;
                     border-radius: 50%;
-                    justify-content: center;
                     margin: 0.75rem 0;
+                    overflow: hidden;
+                    background: transparent;
+                    border: none;
+
+                    img,
+                    .avatar-image {
+                        display: block;
+                        width: 100%;
+                        height: 100%;
+                        border-radius: 50%;
+                        object-fit: cover;
+                    }
+
+                    div:not(.avatar-placeholder),
+                    .avatar-placeholder {
+                        display: none;
+                    }
+
+                    .avatar-placeholder {
+                        display: flex;
+                        position: absolute;
+                        width: 100%;
+                        height: 100%;
+                        border-radius: 50%;
+                        align-items: center;
+                        justify-content: center;
+                    }
 
                     span,
-                    i {
-                        display: none;
+                    .layout-menu-profile-text {
+                        display: none !important;
                     }
                 }
 

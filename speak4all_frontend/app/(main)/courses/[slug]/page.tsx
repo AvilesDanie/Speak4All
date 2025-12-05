@@ -40,9 +40,13 @@ import { useExerciseNotifications } from '@/contexts/ExerciseNotificationContext
 
 const AUDIO_BASE_URL = API_BASE;
 
+// El backend ahora devuelve URLs firmadas de Google Cloud Storage directamente
 const buildAvatarUrl = (path?: string | null) => {
+    // Si es null o undefined, no hay avatar
     if (!path) return null;
+    // Si ya es una URL completa (http/https), devolverla tal cual
     if (path.startsWith('http')) return path;
+    // Si es una ruta relativa del backend (por compatibilidad con almacenamiento local)
     const normalized = path.startsWith('/') ? path : `/${path}`;
     return `${API_BASE}${normalized}`;
 };
@@ -770,8 +774,7 @@ const CoursePage: React.FC = () => {
                                     <div className="flex justify-content-between align-items-center gap-3">
                                         <div className="flex align-items-center gap-3">
                                             <Avatar
-                                                image={avatarUrl || undefined}
-                                                label={!avatarUrl ? s.student_name?.charAt(0).toUpperCase() : undefined}
+                                                {...(avatarUrl ? { image: avatarUrl } : { label: s.student_name?.charAt(0).toUpperCase() })}
                                                 shape="circle"
                                                 size="large"
                                             />
@@ -1281,8 +1284,7 @@ const CoursePage: React.FC = () => {
                                         <td className="p-3">
                                             <div className="flex align-items-center gap-3">
                                                 <Avatar
-                                                    image={avatarUrl || undefined}
-                                                    label={!avatarUrl ? p.full_name?.charAt(0).toUpperCase() : undefined}
+                                                    {...(avatarUrl ? { image: avatarUrl } : { label: p.full_name?.charAt(0).toUpperCase() })}
                                                     shape="circle"
                                                     size="large"
                                                 />

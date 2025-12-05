@@ -84,6 +84,11 @@ export default function SelectRolePage() {
                 localStorage.setItem('backend_synced', 'true');
                 localStorage.setItem('backend_token', data.token.access_token);
                 localStorage.setItem('backend_user', JSON.stringify(data.user));
+                
+                // Dispatch event to notify components of new login
+                window.dispatchEvent(new CustomEvent('user-login', {
+                    detail: { user: data.user, token: data.token.access_token }
+                }));
             }
 
             router.push('/');
@@ -125,6 +130,11 @@ export default function SelectRolePage() {
                 localStorage.setItem('backend_synced', 'true');
                 localStorage.setItem('backend_token', data.token.access_token);
                 localStorage.setItem('backend_user', JSON.stringify(data.user));
+                
+                // Dispatch event to notify components of new login
+                window.dispatchEvent(new CustomEvent('user-login', {
+                    detail: { user: data.user, token: data.token.access_token }
+                }));
             }
 
             router.push('/');

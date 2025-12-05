@@ -7,7 +7,8 @@ import { DataTable, DataTableFilterMeta } from 'primereact/datatable';
 import { InputText } from 'primereact/inputtext';
 import { ProgressBar } from 'primereact/progressbar';
 import React, { useEffect, useRef, useState } from 'react';
-import { CustomerService } from '../../../../demo/service/CustomerService';
+// TODO: Integrar con API real del backend en lugar de usar datos de demo
+// import { CustomerService } from '../../../../demo/service/CustomerService';
 import type { Demo } from '@/types';
 
 function List() {
@@ -58,10 +59,13 @@ function List() {
     };
 
     useEffect(() => {
-        CustomerService.getCustomersLarge().then((data) => {
-            setCustomers(getCustomers(data));
-            setLoading(false);
-        });
+        // TODO: Reemplazar con llamada a API real del backend
+        // CustomerService.getCustomersLarge().then((data) => {
+        //     setCustomers(getCustomers(data));
+        //     setLoading(false);
+        // });
+        setCustomers([]);
+        setLoading(false);
         initFilters();
     }, []);
 

@@ -120,13 +120,17 @@ const ExerciseListPage: React.FC = () => {
     useEffect(() => {
         if (authLoading) return;
         
+        // Redirigir a estudiantes a la página principal
         if (!token || role !== 'THERAPIST') {
+            if (role === 'STUDENT') {
+                router.push('/');
+            }
             setLoading(false);
             return;
         }
         loadExercises(token, page, pageSize, folderFilter);
         loadFolders(token);
-    }, [authLoading, token, role, page, pageSize, folderFilter, loadExercises, loadFolders]);
+    }, [authLoading, token, role, page, pageSize, folderFilter, loadExercises, loadFolders, router]);
 
     // filtro de búsqueda
     useEffect(() => {

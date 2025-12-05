@@ -22,43 +22,83 @@ export function GlobalSubmissionNotifier() {
     useEffect(() => {
         setMounted(true);
 
-        const storedToken = window.localStorage.getItem('backend_token');
-        setToken(storedToken);
+        const loadUserAndCourses = () => {
+            const storedToken = window.localStorage.getItem('backend_token');
+            setToken(storedToken);
 
-        const userRaw = window.localStorage.getItem('backend_user');
-        if (userRaw) {
-            try {
-                const user = JSON.parse(userRaw) as BackendUser;
-                setRole(user.role);
-            } catch {
+            const userRaw = window.localStorage.getItem('backend_user');
+            if (userRaw) {
+                try {
+                    const user = JSON.parse(userRaw) as BackendUser;
+                    setRole(user.role);
+                } catch {
+                    setRole(null);
+                }
+            } else {
                 setRole(null);
+                setCourses([]);
+                return;
             }
-        }
 
-        if (!storedToken) {
-            return;
-        }
-        // Cargar cursos del usuario para conectar a sus WebSockets
-        const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
-        fetch(`${apiBase}/courses/my`, {
-            headers: { Authorization: `Bearer ${storedToken}` },
-        })
-            .then(res => {
-                if (res.ok) {
-                    return res.json();
-                }
-                console.error('[GlobalSubmissionNotifier] Error loading courses:', res.status);
-                return null;
+            if (!storedToken) {
+                setCourses([]);
+                return;
+            }
+            
+            // Cargar cursos del usuario para conectar a sus WebSockets
+            const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+            fetch(`${apiBase}/courses/my`, {
+                headers: { Authorization: `Bearer ${storedToken}` },
             })
-            .then(data => {
-                if (data) {
-                    const coursesData = data.items || data;
-                    setCourses(coursesData);
-                }
-            })
-            .catch(err => {
-                console.error('[GlobalSubmissionNotifier] ❌ Error fetching courses:', err);
-            });
+                .then(res => {
+                    if (res.ok) {
+                        return res.json();
+                    }
+                    console.error('[GlobalSubmissionNotifier] Error loading courses:', res.status);
+                    return null;
+                })
+                .then(data => {
+                    if (data) {
+                        const coursesData = data.items || data;
+                        setCourses(coursesData);
+                    }
+                })
+                .catch(err => {
+                    console.error('[GlobalSubmissionNotifier] ❌ Error fetching courses:', err);
+                });
+        };
+
+        loadUserAndCourses();
+
+        // Escuchar cambios en localStorage (login/logout)
+        const handleStorageChange = (e: StorageEvent) => {
+            if (e.key === 'backend_token' || e.key === 'backend_user') {
+                loadUserAndCourses();
+            }
+        };
+
+        // Escuchar logout
+        const handleLogout = () => {
+            setToken(null);
+            setRole(null);
+            setCourses([]);
+            seenSubmissionIdsRef.current.clear();
+        };
+
+        // Escuchar login
+        const handleLogin = () => {
+            loadUserAndCourses();
+        };
+
+        window.addEventListener('storage', handleStorageChange);
+        window.addEventListener('user-logout', handleLogout);
+        window.addEventListener('user-login', handleLogin);
+
+        return () => {
+            window.removeEventListener('storage', handleStorageChange);
+            window.removeEventListener('user-logout', handleLogout);
+            window.removeEventListener('user-login', handleLogin);
+        };
     }, []);
 
     // Solo mostrar este componente si es terapeuta

@@ -54,6 +54,8 @@ const Login: Page = () => {
                 window.localStorage.setItem('backend_synced', 'true');
                 window.localStorage.setItem('backend_token', data.token.access_token);
                 window.localStorage.setItem('backend_user', JSON.stringify(data.user));
+                // Disparar evento para que los componentes se actualicen
+                window.dispatchEvent(new CustomEvent('user-login', { detail: { user: data.user, token: data.token.access_token } }));
                 router.replace('/');
                 return;
             }

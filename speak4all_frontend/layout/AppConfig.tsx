@@ -66,7 +66,7 @@ const AppConfig = (props: AppConfigProps) => {
     const scenes: Scene[] = [
         {
             id: 0,
-            sceneName: 'Green Light',
+            sceneName: 'Verde Claro',
             colorScheme: 'light',
             colorSchemeColor: '#EFEFEF',
             menuTheme: 'light',
@@ -80,7 +80,7 @@ const AppConfig = (props: AppConfigProps) => {
         },
         {
             id: 1,
-            sceneName: 'Dark Sea',
+            sceneName: 'Mar Oscuro',
             colorScheme: 'dark',
             colorSchemeColor: '#20262e',
             menuTheme: 'dark',
@@ -94,7 +94,7 @@ const AppConfig = (props: AppConfigProps) => {
         },
         {
             id: 2,
-            sceneName: 'Blue Marble',
+            sceneName: 'Mármol Azul',
             colorScheme: 'light',
             colorSchemeColor: '#EFEFEF',
             menuTheme: 'light',
@@ -108,7 +108,7 @@ const AppConfig = (props: AppConfigProps) => {
         },
         {
             id: 3,
-            sceneName: 'Emerald',
+            sceneName: 'Esmeralda',
             colorScheme: 'dark',
             colorSchemeColor: '#20262e',
             menuTheme: 'dark',
@@ -122,7 +122,7 @@ const AppConfig = (props: AppConfigProps) => {
         },
         {
             id: 4,
-            sceneName: 'Piano Black',
+            sceneName: 'Piano Negro',
             colorScheme: 'light',
             colorSchemeColor: '#EFEFEF',
             menuTheme: 'light',
@@ -136,7 +136,7 @@ const AppConfig = (props: AppConfigProps) => {
         },
         {
             id: 5,
-            sceneName: 'Bolt',
+            sceneName: 'Rayo',
             colorScheme: 'dark',
             colorSchemeColor: '#20262e',
             menuTheme: 'dark',
@@ -284,7 +284,7 @@ const AppConfig = (props: AppConfigProps) => {
             </button>
 
             <Sidebar visible={layoutState.configSidebarVisible} onHide={onConfigSidebarHide} position="right" className="layout-config-sidebar w-18rem">
-                <h5>Layout/Theme Scale</h5>
+                <h5>Escala de Diseño/Tema</h5>
                 <div className="flex align-items-center">
                     <Button icon="pi pi-minus" type="button" onClick={decrementScale} rounded text className="w-2rem h-2rem mr-2" disabled={layoutConfig.scale === scales[0]}></Button>
                     <div className="flex gap-2 align-items-center">
@@ -301,7 +301,7 @@ const AppConfig = (props: AppConfigProps) => {
                     </div>
                     <Button icon="pi pi-plus" type="button" onClick={incrementScale} rounded text className="w-2rem h-2rem ml-2" disabled={layoutConfig.scale === scales[scales.length - 1]}></Button>
                 </div>
-                <h5>Scenes</h5>
+                <h5>Escenas</h5>
                 <div className="flex flex-wrap p-2 surface-100 gap-2 border-round-lg">
                     {scenes.map((scene) => {
                         return (
@@ -345,90 +345,90 @@ const AppConfig = (props: AppConfigProps) => {
                         );
                     })}
                 </div>
-                <h6>Color Scheme</h6>
+                <h6>Esquema de Color</h6>
                 <div className="flex">
                     <div className="flex align-items-center">
                         <RadioButton id="light" name="darkMenu" value="light" checked={layoutConfig.colorScheme === 'light'} onChange={(e) => changeColorScheme(e.value)} />
                         <label htmlFor="light" className="ml-2">
-                            Light
+                            Claro
                         </label>
                     </div>
                     <div className="flex align-items-center ml-4">
                         <RadioButton id="dark" name="darkMenu" value="dark" checked={layoutConfig.colorScheme === 'dark'} onChange={(e) => changeColorScheme(e.value)} />
                         <label htmlFor="dark" className="ml-2">
-                            Dark
+                            Oscuro
                         </label>
                     </div>
                 </div>
 
                 {!props.minimal && (
                     <>
-                        <h5>Menu Mode</h5>
+                        <h5>Modo de Menú</h5>
                         <div className="flex flex-wrap row-gap-3">
                             <div className="flex align-items-center gap-2 w-6">
                                 <RadioButton name="menuMode" value={'static'} checked={layoutConfig.menuMode === 'static'} onChange={(e) => changeMenuMode(e)} inputId="mode1"></RadioButton>
-                                <label htmlFor="mode1">Static</label>
+                                <label htmlFor="mode1">Estático</label>
                             </div>
                             <div className="flex align-items-center gap-2 w-6">
                                 <RadioButton name="menuMode" value={'overlay'} checked={layoutConfig.menuMode === 'overlay'} onChange={(e) => changeMenuMode(e)} inputId="mode2"></RadioButton>
-                                <label htmlFor="mode2">Overlay</label>
+                                <label htmlFor="mode2">Superpuesto</label>
                             </div>
                             <div className="flex align-items-center gap-2 w-6">
                                 <RadioButton name="menuMode" value={'slim'} checked={layoutConfig.menuMode === 'slim'} onChange={(e) => changeMenuMode(e)} inputId="mode3"></RadioButton>
-                                <label htmlFor="mode3">Slim</label>
+                                <label htmlFor="mode3">Estrecho</label>
                             </div>
                             <div className="flex align-items-center gap-2 w-6">
                                 <RadioButton name="menuMode" value={'slim-plus'} checked={layoutConfig.menuMode === 'slim-plus'} onChange={(e) => changeMenuMode(e)} inputId="mode4"></RadioButton>
-                                <label htmlFor="mode4">Slim +</label>
+                                <label htmlFor="mode4">Estrecho +</label>
                             </div>
                             <div className="flex align-items-center gap-2 w-6">
                                 <RadioButton name="menuMode" value={'drawer'} checked={layoutConfig.menuMode === 'drawer'} onChange={(e) => changeMenuMode(e)} inputId="mode7"></RadioButton>
-                                <label htmlFor="mode7">Drawer</label>
+                                <label htmlFor="mode7">Cajón</label>
                             </div>
                             <div className="flex align-items-center gap-2 w-6">
                                 <RadioButton name="menuMode" value={'reveal'} checked={layoutConfig.menuMode === 'reveal'} onChange={(e) => changeMenuMode(e)} inputId="mode5"></RadioButton>
-                                <label htmlFor="mode6">Reveal</label>
+                                <label htmlFor="mode6">Revelar</label>
                             </div>
                             <div className="flex align-items-center gap-2 w-6">
                                 <RadioButton name="menuMode" value={'horizontal'} checked={layoutConfig.menuMode === 'horizontal'} onChange={(e) => changeMenuMode(e)} inputId="mode5"></RadioButton>
                                 <label htmlFor="mode5">Horizontal</label>
                             </div>
                         </div>
-                        <h5>Menu Profile Position</h5>
+                        <h5>Posición del Perfil de Menú</h5>
                         <div className="flex">
                             <div className="flex align-items-center">
                                 <RadioButton id="start" name="position" value="start" checked={layoutConfig.menuProfilePosition === 'start'} onChange={onInlineMenuPositionChange} />
                                 <label htmlFor="start" className="ml-2">
-                                    Start
+                                    Inicio
                                 </label>
                             </div>
                             <div className="flex align-items-center ml-4">
                                 <RadioButton id="end" name="position" value="end" checked={layoutConfig.menuProfilePosition === 'end'} onChange={onInlineMenuPositionChange} />
                                 <label htmlFor="end" className="ml-2">
-                                    End
+                                    Fin
                                 </label>
                             </div>
                         </div>
 
-                        <h5>Input Style</h5>
+                        <h5>Estilo de Entrada</h5>
                         <div className="flex">
                             <div className="field-radiobutton flex-1">
                                 <RadioButton name="inputStyle" value="outlined" checked={layoutConfig.inputStyle === 'outlined'} onChange={(e) => changeInputStyle(e)} inputId="outlined_input"></RadioButton>
-                                <label htmlFor="outlined_input">Outlined</label>
+                                <label htmlFor="outlined_input">Contorneado</label>
                             </div>
                             <div className="field-radiobutton flex-1">
                                 <RadioButton name="inputStyle" value="filled" checked={layoutConfig.inputStyle === 'filled'} onChange={(e) => changeInputStyle(e)} inputId="filled_input"></RadioButton>
-                                <label htmlFor="filled_input">Filled</label>
+                                <label htmlFor="filled_input">Relleno</label>
                             </div>
                         </div>
                     </>
                 )}
-                <h5>Ripple Effect</h5>
+                <h5>Efecto Ondulante</h5>
                 <InputSwitch checked={layoutConfig.ripple} onChange={changeRipple}></InputSwitch>
 
                 {!props.minimal && (
                     <>
-                        <h5>Menu Themes</h5>
+                        <h5>Temas de Menú</h5>
                         {layoutConfig.colorScheme !== 'dark' ? (
                             <div className="flex flex-wrap row-gap-3">
                                 {menuThemes.map((t, i) => {
@@ -448,10 +448,10 @@ const AppConfig = (props: AppConfigProps) => {
                                 })}
                             </div>
                         ) : (
-                            <p>Menu themes are only available in light mode by design as large surfaces can emit too much brightness in dark mode.</p>
+                            <p>Los temas de menú solo están disponibles en modo claro por diseño, ya que las superficies grandes pueden emitir demasiado brillo en modo oscuro.</p>
                         )}
 
-                        <h5>Topbar Themes</h5>
+                        <h5>Temas de Barra Superior</h5>
                         <div className="flex flex-wrap row-gap-3">
                             {topbarThemes.map((t, i) => {
                                 return (
@@ -471,7 +471,7 @@ const AppConfig = (props: AppConfigProps) => {
                         </div>
                     </>
                 )}
-                <h5>Component Themes</h5>
+                <h5>Temas de Componentes</h5>
                 <div className="flex flex-wrap row-gap-3">
                     {componentThemes.map((t, i) => {
                         return (

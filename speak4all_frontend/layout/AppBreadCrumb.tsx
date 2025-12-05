@@ -2,9 +2,7 @@ import { usePathname, useSearchParams } from 'next/navigation';
 import React, { useContext, useEffect, useState } from 'react';
 import { LayoutContext } from './context/layoutcontext';
 import type { Breadcrumb } from '@/types';
-import { Button } from 'primereact/button';
 import Link from 'next/link';
-import { signOut } from 'next-auth/react';
 
 const AppBreadcrumb = () => {
     const pathname = usePathname();
@@ -12,9 +10,7 @@ const AppBreadcrumb = () => {
     const [breadcrumb, setBreadcrumb] = useState<Breadcrumb | null>(null);
     const { breadcrumbs } = useContext(LayoutContext);
 
-    const isDashboard =
-        pathname + searchParams.toString() !== '/' &&
-        pathname + searchParams.toString() !== '/dashboards/banking';
+    const isDashboard = pathname + searchParams.toString() !== '/';
 
     useEffect(() => {
         if (!breadcrumbs) {
@@ -61,25 +57,6 @@ const AppBreadcrumb = () => {
         setBreadcrumb(filtered);
     }, [pathname, breadcrumbs]);
 
-    const handleLogout = () => {
-        if (typeof window !== 'undefined') {
-            // Limpiar todas las notificaciones guardadas
-            const keys = Object.keys(localStorage);
-            keys.forEach(key => {
-                if (key.startsWith('stored_notifications_')) {
-                    localStorage.removeItem(key);
-                }
-            });
-            
-            localStorage.removeItem('backend_synced');
-            localStorage.removeItem('backend_token');
-            localStorage.removeItem('backend_user');
-            localStorage.removeItem('pending_role');
-        }
-
-        signOut({ callbackUrl: '/auth/login2' });
-    };
-
     return (
         <div className="layout-breadcrumb-container">
             <nav className="layout-breadcrumb">
@@ -121,27 +98,12 @@ const AppBreadcrumb = () => {
                         <>
                             <i className="pi pi-angle-right"></i>
                             {pathname + searchParams.toString() === '/' && (
-                                <li>E-Commerce Dashboard</li>
-                            )}
-                            {pathname + searchParams.toString() === '/dashboards/banking' && (
-                                <li>Banking Dashboard</li>
+                                <li>Dashboard</li>
                             )}
                         </>
                     )}
                 </ol>
             </nav>
-
-            <div className="layout-breadcrumb-buttons">
-                <Button icon="pi pi-cloud-upload" rounded text className="p-button-plain" />
-                <Button icon="pi pi-bookmark" rounded text className="p-button-plain" />
-                <Button
-                    icon="pi pi-power-off"
-                    rounded
-                    text
-                    className="p-button-plain"
-                    onClick={handleLogout}
-                />
-            </div>
         </div>
     );
 };

@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from ..database import get_db
 from .. import models, schemas
 from ..deps import get_current_user
+from ..services import storage
 import secrets
 
 logger = logging.getLogger(__name__)
@@ -304,12 +305,20 @@ def list_course_students(
 
     results: list[schemas.StudentProgressOut] = []
     for r in rows:
+        # Generar URL firmada para el avatar si existe
+        avatar_url = None
+        if r.avatar_path:
+            try:
+                avatar_url = storage.generate_signed_url(r.avatar_path, minutes=60)
+            except Exception:
+                avatar_url = None
+        
         results.append(
             schemas.StudentProgressOut(
                 course_student_id=r.course_student_id,
                 student_id=r.student_id,
                 student_name=r.student_name,
-                avatar_path=r.avatar_path,
+                avatar_path=avatar_url,  # Ahora es una URL firmada
                 completed_exercises=int(r.completed_exercises or 0),
                 total_exercises=int(total_exercises or 0),
                 last_submission_at=r.last_submission_at,

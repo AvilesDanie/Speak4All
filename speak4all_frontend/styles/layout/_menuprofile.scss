@@ -45,6 +45,28 @@
             color: var(--menuitem-text-color);
             transition: background-color var(--transition-duration);
 
+            .avatar-image,
+            .avatar-placeholder {
+                width: 32px;
+                height: 32px;
+                flex-shrink: 0;
+                border-radius: 50%;
+                
+                &.avatar-image {
+                    object-fit: cover;
+                }
+                
+                &.avatar-placeholder {
+                    background-color: var(--primary-color);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    color: white;
+                    font-weight: bold;
+                    font-size: 1rem;
+                }
+            }
+
             > span {
                 display: flex;
                 flex-direction: column;

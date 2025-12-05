@@ -1,51 +1,254 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { Button } from 'primereact/button';
-import { Card } from 'primereact/card';
-import Link from 'next/link';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { getMyCourses } from '@/services/courses';
-import { getMyExercises } from '@/services/exercises';
-import { API_BASE } from '@/services/apiClient';
+import { Card } from 'primereact/card';
+import { Tag } from 'primereact/tag';
+import { ProgressBar } from 'primereact/progressbar';
+import { Badge } from 'primereact/badge';
+import { DataTable } from 'primereact/datatable';
+import { Column } from 'primereact/column';
+import { Button } from 'primereact/button';
+import { getMyCourses, getCourseStudentsProgress, getCourseExercises, getStudentExercisesForCourse, getCourseJoinRequests, decideJoinRequest, type JoinRequest } from '@/services/courses';
+import { useStoredNotifications } from '@/contexts/StoredNotificationContext';
+import { useRouter } from 'next/navigation';
 
 export default function Dashboard() {
     const { user, token, role, loading } = useAuth();
-    const [stats, setStats] = useState({ courses: 0, exercises: 0, submissions: 0 });
-    const [statsLoading, setStatsLoading] = useState(false);
+    const { notifications } = useStoredNotifications();
+    const router = useRouter();
+    
+    const isTherapist = role === 'THERAPIST';
+    const [loadingData, setLoadingData] = useState(true);
+    const [errorMsg, setErrorMsg] = useState<string | null>(null);
+    const [overview, setOverview] = useState<{ title: string; value: number; delta: string; color: string; icon: string }[]>([]);
+    const [progressBars, setProgressBars] = useState<{ label: string; value: number; courseId?: number }[]>([]);
+    const [spotlight, setSpotlight] = useState<{ name: string; metric: string; color: string; courseId: number; slug?: string }[]>([]);
+    const [studentsData, setStudentsData] = useState<any[]>([]);
+    const [recentExercises, setRecentExercises] = useState<any[]>([]);
+    const [studentCourses, setStudentCourses] = useState<any[]>([]);
+    const [joinRequests, setJoinRequests] = useState<(JoinRequest & { courseName: string; studentEmail?: string })[]>([]);
+    const [processingRequest, setProcessingRequest] = useState<number | null>(null);
 
     useEffect(() => {
-        // Solo ejecutar cuando la autenticación haya terminado de cargar Y tengamos token
-        if (loading || !token) {
+        if (!token) return;
+        const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL;
+        if (!apiBase) {
+            setErrorMsg('Configura NEXT_PUBLIC_API_BASE_URL para cargar datos del dashboard.');
+            setLoadingData(false);
             return;
         }
-        
-        const fetchStats = async () => {
-            try {
-                setStatsLoading(true);
 
-                const [coursesData, exercisesData, submissionsRes] = await Promise.all([
-                    getMyCourses(token, 1, 1000).catch(() => ({ items: [], total: 0, page: 1, page_size: 1000, total_pages: 0 })),
-                    role === 'THERAPIST' ? getMyExercises(token, 1, 1000).catch(() => ({ items: [], total: 0, page: 1, page_size: 1000, total_pages: 0 })) : Promise.resolve({ items: [], total: 0, page: 1, page_size: 1000, total_pages: 0 }),
-                    fetch(`${API_BASE}/submissions/my/count`, { headers: { Authorization: `Bearer ${token}` } }).catch(() => null),
+        const colors = ['#4f46e5', '#10b981', '#f59e0b', '#8b5cf6', '#6366f1', '#22c55e'];
+
+        const loadTherapist = async () => {
+            try {
+                const coursesRes = await getMyCourses(token, 1, 10);
+                const courses = (coursesRes as any).items || coursesRes || [];
+
+                // Cargar datos completos de estudiantes por curso
+                const studentsDataByCourse: any[] = [];
+                const allExercises: any[] = [];
+
+                for (const course of courses) {
+                    const [studentsProgress, exercises] = await Promise.all([
+                        getCourseStudentsProgress(token, course.id).catch(() => []),
+                        getCourseExercises(token, course.id).catch(() => []),
+                    ]);
+
+                    // Agregar ejercicios a la lista global
+                    (exercises as any[]).forEach((ex) => {
+                        allExercises.push({
+                            ...ex,
+                            courseName: course.name,
+                            courseId: course.id,
+                        });
+                    });
+
+                    // Agregar estudiantes con info del curso
+                    (studentsProgress as any[]).forEach((student) => {
+                        studentsDataByCourse.push({
+                            studentName: student.full_name || student.email || 'Sin nombre',
+                            studentEmail: student.email || '',
+                            courseName: course.name,
+                            courseId: course.id,
+                            totalExercises: student.total_exercises || 0,
+                            doneExercises: student.done_exercises || 0,
+                            progress: student.total_exercises > 0 
+                                ? Math.round((student.done_exercises / student.total_exercises) * 100) 
+                                : 0,
+                        });
+                    });
+                }
+
+                // Ordenar ejercicios por fecha de creación (más recientes primero)
+                const sortedExercises = allExercises.sort((a, b) => {
+                    const dateA = new Date(a.created_at || 0).getTime();
+                    const dateB = new Date(b.created_at || 0).getTime();
+                    return dateB - dateA;
+                });
+
+                setStudentsData(studentsDataByCourse);
+                setRecentExercises(sortedExercises.slice(0, 5));
+
+                // Cargar solicitudes de ingreso pendientes de todos los cursos
+                const allRequests: (JoinRequest & { courseName: string })[] = [];
+                for (const course of courses) {
+                    try {
+                        const requests = await getCourseJoinRequests(token, course.id);
+                        (requests as JoinRequest[]).forEach((req) => {
+                            if (req.status === 'PENDING') {
+                                allRequests.push({
+                                    ...req,
+                                    courseName: course.name,
+                                });
+                            }
+                        });
+                    } catch (err) {
+                        console.error(`Error loading requests for course ${course.id}:`, err);
+                    }
+                }
+                setJoinRequests(allRequests);
+
+                const totalStudents = studentsDataByCourse.length;
+                const totalExercises = allExercises.length;
+                const avgProgress = studentsDataByCourse.length > 0 
+                    ? Math.round(studentsDataByCourse.reduce((acc, s) => acc + s.progress, 0) / studentsDataByCourse.length) 
+                    : 0;
+
+                setOverview([
+                    { title: 'Cursos activos', value: courses.length, delta: 'gestionando', color: '#4f46e5', icon: 'pi-book' },
+                    { title: 'Estudiantes', value: totalStudents, delta: 'totales', color: '#10b981', icon: 'pi-users' },
+                    { title: 'Ejercicios publicados', value: totalExercises, delta: 'en tus cursos', color: '#8b5cf6', icon: 'pi-file' },
                 ]);
 
-                const courses = coursesData.total;
-                const exercises = exercisesData.total;
-                const submissionsData = submissionsRes && submissionsRes.ok ? await submissionsRes.json() : { count: 0 };
-
-                setStats({ courses, exercises, submissions: submissionsData.count });
-            } catch (err) {
-                console.error('Error fetching stats:', err);
+                setProgressBars([]);
+                setSpotlight([]);
+            } catch (err: any) {
+                setErrorMsg(err?.message || 'No se pudieron cargar datos');
             } finally {
-                setStatsLoading(false);
+                setLoadingData(false);
             }
         };
 
-        fetchStats();
-    }, [loading, token, role]);
+        const loadStudent = async () => {
+            try {
+                const coursesRes = await getMyCourses(token, 1, 10);
+                const courses = (coursesRes as any).items || coursesRes || [];
 
-    if (loading) {
+                const perCourse = await Promise.all(
+                    courses.slice(0, 5).map(async (course: any, idx: number) => {
+                        const exercisesForMe = await getStudentExercisesForCourse(token, course.id).catch(() => []);
+                        const total = (exercisesForMe as any[]).length;
+                        const done = (exercisesForMe as any[]).filter((e: any) => e.status === 'DONE').length;
+                        const pending = total - done;
+                        const progress = total > 0 ? Math.round((done / total) * 100) : 0;
+                        return {
+                            name: course.name,
+                            courseId: course.id,
+                            slug: course.slug,
+                            exercisesCount: total,
+                            done,
+                            pending,
+                            progress,
+                            color: colors[idx % colors.length],
+                        };
+                    })
+                );
+
+                const totalExercises = perCourse.reduce((acc, c) => acc + c.exercisesCount, 0);
+                const totalDone = perCourse.reduce((acc, c) => acc + c.done, 0);
+                const totalPending = perCourse.reduce((acc, c) => acc + c.pending, 0);
+                const avgProgress = perCourse.length > 0 ? Math.round(perCourse.reduce((acc, c) => acc + c.progress, 0) / perCourse.length) : 0;
+
+                setOverview([
+                    { title: 'Cursos inscritos', value: courses.length, delta: `${perCourse.length} activos`, color: '#4f46e5', icon: 'pi-book' },
+                    { title: 'Ejercicios completados', value: totalDone, delta: 'hechos', color: '#10b981', icon: 'pi-check-circle' },
+                    { title: 'Ejercicios pendientes', value: totalPending, delta: 'por entregar', color: '#f59e0b', icon: 'pi-clock' },
+                    { title: 'Progreso promedio', value: avgProgress, delta: '% de avance', color: '#8b5cf6', icon: 'pi-chart-line' },
+                ]);
+
+                setProgressBars(
+                    perCourse.map((c) => ({
+                        label: c.name,
+                        value: c.progress,
+                        courseId: c.courseId,
+                    }))
+                );
+
+                setSpotlight(
+                    perCourse.slice(0, 4).map((c) => ({ 
+                        name: c.name, 
+                        metric: `${c.progress}% completado`, 
+                        color: c.color,
+                        courseId: c.courseId,
+                        slug: c.slug
+                    }))
+                );
+
+                setStudentCourses(perCourse);
+            } catch (err: any) {
+                setErrorMsg(err?.message || 'No se pudieron cargar datos');
+            } finally {
+                setLoadingData(false);
+            }
+        };
+
+        if (isTherapist) {
+            loadTherapist();
+        } else {
+            loadStudent();
+        }
+    }, [token, isTherapist]);
+
+    const timeline = useMemo(() => {
+        const items = notifications?.slice(0, 4) || [];
+        return items.map((n) => ({
+            label: n.summary,
+            detail: n.detail || '',
+            time: n.timestamp ? new Date(n.timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : ''
+        }));
+    }, [notifications]);
+
+    const handleJoinRequestDecision = async (requestId: number, courseId: number, accept: boolean) => {
+        if (!token) return;
+        setProcessingRequest(requestId);
+        try {
+            await decideJoinRequest(token, courseId, requestId, accept);
+            // Remover la solicitud de la lista
+            setJoinRequests(prev => prev.filter(req => req.id !== requestId));
+            // Recargar datos si se aceptó (para actualizar lista de estudiantes)
+            if (accept && isTherapist) {
+                const coursesRes = await getMyCourses(token, 1, 10);
+                const courses = (coursesRes as any).items || coursesRes || [];
+                const studentsDataByCourse: any[] = [];
+                for (const course of courses) {
+                    const studentsProgress = await getCourseStudentsProgress(token, course.id).catch(() => []);
+                    (studentsProgress as any[]).forEach((student) => {
+                        studentsDataByCourse.push({
+                            studentName: student.full_name || student.email || 'Sin nombre',
+                            studentEmail: student.email || '',
+                            courseName: course.name,
+                            courseId: course.id,
+                            totalExercises: student.total_exercises || 0,
+                            doneExercises: student.done_exercises || 0,
+                            progress: student.total_exercises > 0 
+                                ? Math.round((student.done_exercises / student.total_exercises) * 100) 
+                                : 0,
+                        });
+                    });
+                }
+                setStudentsData(studentsDataByCourse);
+            }
+        } catch (err: any) {
+            console.error('Error processing join request:', err);
+            setErrorMsg(err?.message || 'Error al procesar la solicitud');
+        } finally {
+            setProcessingRequest(null);
+        }
+    };
+
+    if (loading || loadingData) {
         return (
             <div className="flex justify-content-center align-items-center" style={{ minHeight: '60vh' }}>
                 <div className="text-center">
@@ -57,12 +260,12 @@ export default function Dashboard() {
     }
 
     return (
-        <div className="surface-ground min-h-screen">
-            {/* Header con gradiente */}
-            <div 
-                className="p-6 mb-4"
+        <div className="surface-ground min-h-screen p-4" style={{ maxWidth: '1200px', margin: '0 auto' }}>
+            {/* Header con gradiente y datos del usuario */}
+            <div
+                className="p-5 mb-5 border-round-2xl"
                 style={{
-                    background: role === 'THERAPIST' 
+                    background: role === 'THERAPIST'
                         ? 'linear-gradient(135deg, #4f46e5 0%, #8b5cf6 100%)'
                         : 'linear-gradient(135deg, #10b981 0%, #22c55e 100%)',
                     color: 'white'
@@ -78,7 +281,7 @@ export default function Dashboard() {
                             Bienvenido{user?.full_name ? `, ${user.full_name}` : ''}
                         </p>
                         <div className="flex align-items-center gap-2 mt-2">
-                            <span 
+                            <span
                                 className="px-3 py-1 border-round-2xl text-sm font-semibold"
                                 style={{ background: 'rgba(255,255,255,0.2)' }}
                             >
@@ -95,217 +298,394 @@ export default function Dashboard() {
                 </div>
             </div>
 
-            <div className="px-6 pb-6">
-                <div className="grid">
-                    {/* Estadísticas Cards */}
-                    <div className="col-12 md:col-4">
-                        <Card 
-                            className="shadow-3 border-round-2xl h-full"
-                            style={{ 
-                                background: 'linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%)',
-                                border: 'none'
-                            }}
-                        >
-                            <div className="flex align-items-center gap-3">
-                                <div 
-                                    className="flex align-items-center justify-content-center border-round-circle"
-                                    style={{ 
-                                        width: '60px', 
-                                        height: '60px',
-                                        background: '#4f46e5',
-                                        color: 'white'
-                                    }}
-                                >
-                                    <i className="pi pi-book" style={{ fontSize: '1.5rem' }} />
-                                </div>
-                                <div>
-                                    <p className="m-0 text-600 text-sm">Mis Cursos</p>
-                                    <h2 className="m-0 text-4xl font-bold text-900">{stats.courses}</h2>
-                                </div>
+                        {/* Solicitudes de ingreso (solo para terapeutas) */}
+                        {isTherapist && (
+                            <div className="col-12">
+                                <Card className="shadow-2 border-round-xl">
+                                    <div className="flex align-items-center justify-content-between mb-4">
+                                        <h3 className="m-0 font-bold text-900">
+                                            <i className="pi pi-user-plus mr-2" style={{ color: '#f59e0b' }} />
+                                            Solicitudes de ingreso
+                                        </h3>
+                                        <Tag value={`${joinRequests.length} pendientes`} severity={joinRequests.length > 0 ? 'warning' : 'success'} />
+                                    </div>
+                                    {joinRequests.length === 0 ? (
+                                        <div className="text-center p-5">
+                                            <i className="pi pi-check-circle text-5xl text-400 mb-3 block" />
+                                            <p className="m-0 text-600">No hay solicitudes pendientes</p>
+                                            <p className="m-0 text-500 text-sm mt-1">Las nuevas solicitudes aparecerán aquí</p>
+                                        </div>
+                                    ) : (
+                                        <div className="flex flex-column gap-3">
+                                            {joinRequests.map((request) => (
+                                                <div 
+                                                    key={request.id}
+                                                    className="p-3 border-round-lg"
+                                                    style={{ 
+                                                        border: '1px solid #e5e7eb',
+                                                        background: '#fafafa'
+                                                    }}
+                                                >
+                                                    <div className="flex align-items-start justify-content-between gap-3">
+                                                        <div className="flex-1">
+                                                            <div className="flex align-items-center gap-2 mb-2">
+                                                                <i className="pi pi-user text-sm" style={{ color: '#6366f1' }} />
+                                                                <span className="font-semibold text-900">Nuevo estudiante</span>
+                                                            </div>
+                                                            <div className="flex align-items-center gap-2 mb-1">
+                                                                <i className="pi pi-book text-xs text-600" />
+                                                                <span className="text-sm text-600">{request.courseName}</span>
+                                                            </div>
+                                                            <div className="flex align-items-center gap-2">
+                                                                <i className="pi pi-calendar text-xs text-500" />
+                                                                <span className="text-xs text-500">
+                                                                    {new Date(request.created_at).toLocaleDateString('es-ES', {
+                                                                        year: 'numeric',
+                                                                        month: 'short',
+                                                                        day: 'numeric',
+                                                                        hour: '2-digit',
+                                                                        minute: '2-digit'
+                                                                    })}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex gap-2">
+                                                            <Button 
+                                                                icon="pi pi-check" 
+                                                                severity="success"
+                                                                size="small"
+                                                                rounded
+                                                                outlined
+                                                                disabled={processingRequest === request.id}
+                                                                loading={processingRequest === request.id}
+                                                                onClick={() => handleJoinRequestDecision(request.id, request.course_id, true)}
+                                                                tooltip="Aceptar"
+                                                                tooltipOptions={{ position: 'top' }}
+                                                            />
+                                                            <Button 
+                                                                icon="pi pi-times" 
+                                                                severity="danger"
+                                                                size="small"
+                                                                rounded
+                                                                outlined
+                                                                disabled={processingRequest === request.id}
+                                                                onClick={() => handleJoinRequestDecision(request.id, request.course_id, false)}
+                                                                tooltip="Rechazar"
+                                                                tooltipOptions={{ position: 'top' }}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </Card>
                             </div>
-                        </Card>
-                    </div>
+                        )}
 
-                    {role === 'THERAPIST' && (
-                        <div className="col-12 md:col-4">
-                            <Card 
-                                className="shadow-3 border-round-2xl h-full"
-                                style={{ 
-                                    background: 'linear-gradient(135deg, #f3e8ff 0%, #e9d5ff 100%)',
-                                    border: 'none'
-                                }}
-                            >
-                                <div className="flex align-items-center gap-3">
-                                    <div 
-                                        className="flex align-items-center justify-content-center border-round-circle"
-                                        style={{ 
-                                            width: '60px', 
-                                            height: '60px',
-                                            background: '#8b5cf6',
-                                            color: 'white'
-                                        }}
-                                    >
-                                        <i className="pi pi-microphone" style={{ fontSize: '1.5rem' }} />
+            {errorMsg && (
+                <Card className="shadow-1 border-round-2xl mb-4" style={{ border: '1px solid #f59e0b' }}>
+                    <p className="m-0 text-700 text-sm">{errorMsg}</p>
+                </Card>
+            )}
+
+            {/* Sección de métricas principales */}
+            <div className="grid">
+                <div className="col-12">
+                    <div className="grid">
+                        {overview.map((item) => (
+                            <div key={item.title} className={`col-12 md:col-6 lg:col-${isTherapist ? '4' : '3'}`}>
+                                <Card className="shadow-2 border-round-xl h-full" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)' }}>
+                                    <div className="flex align-items-start justify-content-between mb-3">
+                                        <div 
+                                            className="flex align-items-center justify-content-center border-round-circle" 
+                                            style={{ 
+                                                width: '48px', 
+                                                height: '48px', 
+                                                backgroundColor: `${item.color}20`
+                                            }}
+                                        >
+                                            <i className={`pi ${item.icon}`} style={{ fontSize: '1.5rem', color: item.color }} />
+                                        </div>
+                                        <Badge value={item.value} style={{ background: item.color, fontSize: '0.875rem' }} />
                                     </div>
-                                    <div>
-                                        <p className="m-0 text-600 text-sm">Ejercicios Creados</p>
-                                        <h2 className="m-0 text-4xl font-bold text-900">{stats.exercises}</h2>
+                                    <h3 className="text-900 font-semibold mb-2" style={{ fontSize: '0.875rem' }}>{item.title}</h3>
+                                    <p className="text-600 m-0" style={{ fontSize: '0.75rem' }}>{item.delta}</p>
+                                </Card>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Columna izquierda: Tabla de estudiantes (terapeuta) o Progreso (estudiante) */}
+                <div className="col-12 lg:col-8">
+                    <div className="grid">
+                        {isTherapist ? (
+                            <div className="col-12">
+                                <Card className="shadow-2 border-round-xl">
+                                    <div className="flex align-items-center justify-content-between mb-4">
+                                        <h3 className="m-0 font-bold text-900">
+                                            <i className="pi pi-users mr-2" style={{ color: '#6366f1' }} />
+                                            Estudiantes y progreso por curso
+                                        </h3>
+                                        <Tag value={`${studentsData.length} estudiantes`} severity="success" icon="pi pi-check-circle" />
                                     </div>
+                                    {studentsData.length === 0 ? (
+                                        <p className="m-0 text-600 text-center p-4">No hay estudiantes para mostrar</p>
+                                    ) : (
+                                        <DataTable 
+                                            value={studentsData} 
+                                            paginator 
+                                            rows={10}
+                                            className="p-datatable-sm"
+                                            rowClassName={(data) => {
+                                                return data.progress > 70 ? 'bg-green-50' : data.progress > 40 ? 'bg-yellow-50' : 'bg-red-50';
+                                            }}
+                                        >
+                                            <Column field="studentName" header="Estudiante" sortable />
+                                            <Column field="courseName" header="Curso" sortable body={(rowData) => (
+                                                <span 
+                                                    className="cursor-pointer text-primary hover:underline"
+                                                    onClick={() => router.push(`/courses/${rowData.courseId}`)}
+                                                >
+                                                    {rowData.courseName}
+                                                </span>
+                                            )} />
+                                            <Column field="doneExercises" header="Completados" sortable body={(rowData) => (
+                                                <span>{rowData.doneExercises} / {rowData.totalExercises}</span>
+                                            )} />
+                                            <Column field="progress" header="Progreso" sortable body={(rowData) => (
+                                                <div className="flex align-items-center gap-2">
+                                                    <ProgressBar 
+                                                        value={rowData.progress} 
+                                                        showValue={false}
+                                                        style={{ width: '100px', height: '8px' }}
+                                                        color={rowData.progress > 70 ? '#10b981' : rowData.progress > 40 ? '#f59e0b' : '#ef4444'}
+                                                    />
+                                                    <span className="font-semibold" style={{ color: rowData.progress > 70 ? '#10b981' : rowData.progress > 40 ? '#f59e0b' : '#ef4444' }}>
+                                                        {rowData.progress}%
+                                                    </span>
+                                                </div>
+                                            )} />
+                                        </DataTable>
+                                    )}
+                                </Card>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="col-12">
+                                    <Card className="shadow-2 border-round-xl">
+                                        <div className="flex align-items-center justify-content-between mb-4">
+                                            <h3 className="m-0 font-bold text-900">
+                                                <i className="pi pi-chart-bar mr-2" style={{ color: '#6366f1' }} />
+                                                Mi progreso en cursos
+                                            </h3>
+                                            <Tag value={`${progressBars.length} cursos`} severity="success" icon="pi pi-check-circle" />
+                                        </div>
+                                        <div className="flex flex-column gap-4">
+                                            {progressBars.length === 0 && (
+                                                <p className="m-0 text-600 text-center p-4">No hay cursos para mostrar</p>
+                                            )}
+                                            {progressBars.map((bar) => (
+                                                <div 
+                                                    key={bar.label}
+                                                    className="cursor-pointer hover:surface-50 p-2 border-round transition-colors"
+                                                    onClick={() => bar.courseId && router.push(`/courses/${bar.courseId}`)}
+                                                >
+                                                    <div className="flex justify-content-between align-items-center mb-2">
+                                                        <span className="text-900 font-semibold" style={{ fontSize: '0.875rem' }}>{bar.label}</span>
+                                                        <span className="font-bold" style={{ fontSize: '1.125rem', color: bar.value > 70 ? '#10b981' : bar.value > 40 ? '#f59e0b' : '#ef4444' }}>{bar.value}%</span>
+                                                    </div>
+                                                    <ProgressBar 
+                                                        value={bar.value} 
+                                                        showValue={false} 
+                                                        style={{ height: '0.75rem' }}
+                                                        color={bar.value > 70 ? '#10b981' : bar.value > 40 ? '#f59e0b' : '#ef4444'}
+                                                    />
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </Card>
+                                </div>
+
+                                <div className="col-12">
+                                    <Card className="shadow-2 border-round-xl">
+                                        <div className="flex align-items-center justify-content-between mb-4">
+                                            <h3 className="m-0 font-bold text-900">
+                                                <i className="pi pi-list mr-2" style={{ color: '#10b981' }} />
+                                                Cursos y pendientes
+                                            </h3>
+                                            <Tag value={`${studentCourses.length} cursos`} severity="info" />
+                                        </div>
+                                        {studentCourses.length === 0 ? (
+                                            <p className="m-0 text-600 text-center p-4">No hay cursos para mostrar</p>
+                                        ) : (
+                                            <DataTable value={studentCourses} paginator rows={5} className="p-datatable-sm">
+                                                <Column field="name" header="Curso" sortable body={(rowData) => (
+                                                    <span 
+                                                        className="cursor-pointer text-primary hover:underline"
+                                                        onClick={() => rowData.courseId && router.push(`/courses/${rowData.courseId}`)}
+                                                    >
+                                                        {rowData.name}
+                                                    </span>
+                                                )} />
+                                                <Column field="done" header="Completados" sortable body={(rowData) => (
+                                                    <span>{rowData.done} / {rowData.exercisesCount}</span>
+                                                )} />
+                                                <Column field="pending" header="Pendientes" sortable />
+                                                <Column field="progress" header="Progreso" sortable body={(rowData) => (
+                                                    <div className="flex align-items-center gap-2">
+                                                        <ProgressBar 
+                                                            value={rowData.progress} 
+                                                            showValue={false}
+                                                            style={{ width: '100px', height: '8px' }}
+                                                            color={rowData.progress > 70 ? '#10b981' : rowData.progress > 40 ? '#f59e0b' : '#ef4444'}
+                                                        />
+                                                        <span className="font-semibold" style={{ color: rowData.progress > 70 ? '#10b981' : rowData.progress > 40 ? '#f59e0b' : '#ef4444' }}>
+                                                            {rowData.progress}%
+                                                        </span>
+                                                    </div>
+                                                )} />
+                                            </DataTable>
+                                        )}
+                                    </Card>
+                                </div>
+                            </>
+                        )}
+
+                        <div className="col-12">
+                            <Card className="shadow-2 border-round-xl">
+                                <div className="flex align-items-center justify-content-between mb-4">
+                                    <h3 className="m-0 font-bold text-900">
+                                        <i className="pi pi-clock mr-2" style={{ color: '#8b5cf6' }} />
+                                        Actividad reciente
+                                    </h3>
+                                    <Tag value={`${timeline.length} eventos`} severity="info" />
+                                </div>
+                                <div className="flex flex-column gap-3">
+                                    {timeline.length === 0 && (
+                                        <div className="text-center p-5">
+                                            <i className="pi pi-inbox text-5xl text-400 mb-3 block" />
+                                            <p className="m-0 text-600">Sin actividad reciente</p>
+                                            <p className="m-0 text-500 text-sm mt-1">Las notificaciones aparecerán aquí automáticamente</p>
+                                        </div>
+                                    )}
+                                    {timeline.map((item, idx) => (
+                                        <div key={idx} className="flex align-items-start gap-3 p-3 border-round-lg hover:surface-100 transition-colors">
+                                            <div className="flex align-items-center justify-content-center border-round-circle" style={{ minWidth: '36px', height: '36px', background: '#e0e7ff' }}>
+                                                <i className="pi pi-bell text-indigo-600" />
+                                            </div>
+                                            <div className="flex-1">
+                                                <p className="m-0 font-semibold text-900">{item.label}</p>
+                                                <p className="m-0 text-sm text-600 mt-1">{item.detail}</p>
+                                            </div>
+                                            <span className="text-xs text-500 white-space-nowrap">{item.time}</span>
+                                        </div>
+                                    ))}
                                 </div>
                             </Card>
                         </div>
-                    )}
+                    </div>
+                </div>
 
-                    <div className="col-12 md:col-4">
-                        <Card 
-                            className="shadow-3 border-round-2xl h-full"
-                            style={{ 
-                                background: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)',
-                                border: 'none'
-                            }}
-                        >
-                            <div className="flex align-items-center gap-3">
-                                <div 
-                                    className="flex align-items-center justify-content-center border-round-circle"
-                                    style={{ 
-                                        width: '60px', 
-                                        height: '60px',
-                                        background: '#10b981',
-                                        color: 'white'
-                                    }}
-                                >
-                                    <i className="pi pi-upload" style={{ fontSize: '1.5rem' }} />
-                                </div>
-                                <div>
-                                    <p className="m-0 text-600 text-sm">
-                                        {role === 'THERAPIST' ? 'Entregas Recibidas' : 'Mis Entregas'}
-                                    </p>
-                                    <h2 className="m-0 text-4xl font-bold text-900">{stats.submissions}</h2>
-                                </div>
+                {/* Columna derecha: Ejercicios recientes (terapeuta) o Cursos destacados (estudiante) */}
+                <div className="col-12 lg:col-4">
+                    {isTherapist ? (
+                        <Card className="shadow-2 border-round-xl h-full">
+                            <div className="flex align-items-center justify-content-between mb-4">
+                                <h3 className="m-0 font-bold text-900">
+                                    <i className="pi pi-file-edit mr-2" style={{ color: '#8b5cf6' }} />
+                                    Ejercicios recientes
+                                </h3>
+                                <Tag value={`${recentExercises.length}`} severity="info" />
                             </div>
+                            <div className="flex flex-column gap-3 mb-4">
+                                {recentExercises.length === 0 && (
+                                    <div className="text-center p-4">
+                                        <i className="pi pi-inbox text-4xl text-400 mb-2 block" />
+                                        <p className="m-0 text-600 text-sm">No hay ejercicios recientes</p>
+                                    </div>
+                                )}
+                                {recentExercises.map((exercise, idx) => (
+                                    <div 
+                                        key={exercise.id || idx} 
+                                        className="p-3 border-round-lg hover:surface-100 transition-colors"
+                                        style={{ 
+                                            borderLeft: '4px solid #8b5cf6',
+                                            background: '#fafafa'
+                                        }}
+                                    >
+                                        <div className="flex align-items-start justify-content-between mb-2">
+                                            <span className="font-semibold text-900 text-sm">{exercise.title || 'Sin título'}</span>
+                                        </div>
+                                        <div className="flex align-items-center gap-2 mb-1">
+                                            <i className="pi pi-book text-xs text-600" />
+                                            <span className="text-xs text-600">{exercise.courseName}</span>
+                                        </div>
+                                        {exercise.created_at && (
+                                            <div className="flex align-items-center gap-2">
+                                                <i className="pi pi-calendar text-xs text-500" />
+                                                <span className="text-xs text-500">
+                                                    {new Date(exercise.created_at).toLocaleDateString('es-ES')}
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                            <Button 
+                                label="Ver todos los ejercicios" 
+                                icon="pi pi-arrow-right" 
+                                className="w-full" 
+                                severity="secondary"
+                                onClick={() => router.push('/exercises')}
+                            />
                         </Card>
-                    </div>
-
-                    {/* Acciones rápidas */}
-                    <div className="col-12 lg:col-8">
-                        <Card className="shadow-3 border-round-2xl h-full">
-                            <h3 className="text-2xl font-semibold mb-4 flex align-items-center gap-2">
-                                <i className="pi pi-bolt" />
-                                Acciones Rápidas
-                            </h3>
-                            
-                            {role === 'THERAPIST' ? (
-                                <div className="grid">
-                                    <div className="col-12 sm:col-6 md:col-4">
-                                        <Link href="/exercises/create" className="no-underline">
-                                            <div 
-                                                className="p-4 border-round-2xl text-center cursor-pointer hover:shadow-3 transition-all transition-duration-200"
-                                                style={{ background: '#f9fafb', border: '2px solid #e5e7eb' }}
-                                            >
-                                                <i className="pi pi-plus-circle mb-3" style={{ fontSize: '2.5rem', color: '#8b5cf6' }} />
-                                                <h4 className="m-0 text-900">Crear Ejercicio</h4>
-                                                <p className="mt-2 text-600 text-sm">Genera nuevo contenido con IA</p>
-                                            </div>
-                                        </Link>
-                                    </div>
-                                    
-                                    <div className="col-12 sm:col-6 md:col-4">
-                                        <Link href="/courses" className="no-underline">
-                                            <div 
-                                                className="p-4 border-round-2xl text-center cursor-pointer hover:shadow-3 transition-all transition-duration-200"
-                                                style={{ background: '#f9fafb', border: '2px solid #e5e7eb' }}
-                                            >
-                                                <i className="pi pi-users mb-3" style={{ fontSize: '2.5rem', color: '#4f46e5' }} />
-                                                <h4 className="m-0 text-900">Gestionar Cursos</h4>
-                                                <p className="mt-2 text-600 text-sm">Organiza tus estudiantes</p>
-                                            </div>
-                                        </Link>
-                                    </div>
-                                    
-                                    <div className="col-12 sm:col-6 md:col-4">
-                                        <Link href="/exercises" className="no-underline">
-                                            <div 
-                                                className="p-4 border-round-2xl text-center cursor-pointer hover:shadow-3 transition-all transition-duration-200"
-                                                style={{ background: '#f9fafb', border: '2px solid #e5e7eb' }}
-                                            >
-                                                <i className="pi pi-list mb-3" style={{ fontSize: '2.5rem', color: '#10b981' }} />
-                                                <h4 className="m-0 text-900">Mis Ejercicios</h4>
-                                                <p className="mt-2 text-600 text-sm">Ver ejercicios guardados</p>
-                                            </div>
-                                        </Link>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="grid">
-                                    <div className="col-12 md:col-6">
-                                        <Link href="/courses" className="no-underline">
-                                            <div 
-                                                className="p-4 border-round-2xl text-center cursor-pointer hover:shadow-3 transition-all transition-duration-200"
-                                                style={{ background: '#f9fafb', border: '2px solid #e5e7eb' }}
-                                            >
-                                                <i className="pi pi-book mb-3" style={{ fontSize: '2.5rem', color: '#10b981' }} />
-                                                <h4 className="m-0 text-900">Mis Cursos</h4>
-                                                <p className="mt-2 text-600 text-sm">Accede a tus cursos activos</p>
-                                            </div>
-                                        </Link>
-                                    </div>
-                                    
-                                    <div className="col-12 md:col-6">
-                                        <Link href="/courses" className="no-underline">
-                                            <div 
-                                                className="p-4 border-round-2xl text-center cursor-pointer hover:shadow-3 transition-all transition-duration-200"
-                                                style={{ background: '#f9fafb', border: '2px solid #e5e7eb' }}
-                                            >
-                                                <i className="pi pi-play-circle mb-3" style={{ fontSize: '2.5rem', color: '#4f46e5' }} />
-                                                <h4 className="m-0 text-900">Continuar Ejercicios</h4>
-                                                <p className="mt-2 text-600 text-sm">Retoma donde lo dejaste</p>
-                                            </div>
-                                        </Link>
-                                    </div>
-                                </div>
-                            )}
-                        </Card>
-                    </div>
-
-                    {/* Información del usuario */}
-                    <div className="col-12 lg:col-4">
-                        <Card className="shadow-3 border-round-2xl h-full">
-                            <h3 className="text-2xl font-semibold mb-4 flex align-items-center gap-2">
-                                <i className="pi pi-info-circle" />
-                                Tu Cuenta
-                            </h3>
-                            
+                    ) : (
+                        <Card className="shadow-2 border-round-xl h-full">
+                            <div className="flex align-items-center justify-content-between mb-4">
+                                <h3 className="m-0 font-bold text-900">
+                                    <i className="pi pi-bookmark mr-2" style={{ color: '#10b981' }} />
+                                    Mis cursos
+                                </h3>
+                                <Tag value="Aprendiendo" severity="success" />
+                            </div>
                             <div className="flex flex-column gap-3">
-                                <div className="flex align-items-center gap-3 p-3 surface-100 border-round-xl">
-                                    <i className="pi pi-user text-2xl text-600" />
-                                    <div>
-                                        <p className="m-0 text-600 text-sm">Nombre</p>
-                                        <p className="m-0 font-semibold">{user?.full_name || 'No disponible'}</p>
+                                {spotlight.length === 0 && (
+                                    <div className="text-center p-4">
+                                        <i className="pi pi-book text-4xl text-400 mb-2 block" />
+                                        <p className="m-0 text-600 text-sm">No hay cursos disponibles</p>
                                     </div>
-                                </div>
-                                
-                                <div className="flex align-items-center gap-3 p-3 surface-100 border-round-xl">
-                                    <i className="pi pi-envelope text-2xl text-600" />
-                                    <div style={{ overflow: 'hidden' }}>
-                                        <p className="m-0 text-600 text-sm">Email</p>
-                                        <p className="m-0 font-semibold" style={{ wordBreak: 'break-word' }}>
-                                            {user?.email || 'No disponible'}
-                                        </p>
+                                )}
+                                {spotlight.map((course, idx) => (
+                                    <div 
+                                        key={course.name} 
+                                        className="p-3 border-round-lg cursor-pointer hover:surface-100 transition-colors"
+                                        style={{ 
+                                            borderLeft: `4px solid ${course.color}`,
+                                            background: '#fafafa'
+                                        }}
+                                        onClick={() => router.push(`/courses/${course.courseId}`)}
+                                    >
+                                        <div className="flex align-items-center justify-content-between mb-2">
+                                            <span className="font-semibold text-900">{course.name}</span>
+                                            <i className="pi pi-arrow-right text-600 text-sm" />
+                                        </div>
+                                        <div className="flex align-items-center gap-2">
+                                            <i className="pi pi-chart-pie text-xs" style={{ color: course.color }} />
+                                            <span className="text-sm font-medium" style={{ color: course.color }}>{course.metric}</span>
+                                        </div>
+                                        <ProgressBar 
+                                            value={parseInt(course.metric) || 0} 
+                                            showValue={false} 
+                                            style={{ height: '4px', marginTop: '0.5rem' }}
+                                            color={course.color}
+                                        />
                                     </div>
-                                </div>
-                                
-                                <div className="flex align-items-center gap-3 p-3 surface-100 border-round-xl">
-                                    <i className="pi pi-shield text-2xl text-600" />
-                                    <div>
-                                        <p className="m-0 text-600 text-sm">Tipo de Cuenta</p>
-                                        <p className="m-0 font-semibold">
-                                            {role === 'THERAPIST' ? 'Terapeuta' : 'Estudiante'}
-                                        </p>
-                                    </div>
-                                </div>
+                                ))}
                             </div>
                         </Card>
-                    </div>
+                    )}
                 </div>
             </div>
         </div>
