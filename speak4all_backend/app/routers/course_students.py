@@ -121,6 +121,7 @@ def list_course_students_progress(
                 student_id=user.id,
                 full_name=user.full_name,
                 email=user.email,
+                avatar_path=user.avatar_path,
                 total_exercises=total_ex,
                 done_exercises=done_count,
                 last_submission_at=last_at,

@@ -6,6 +6,7 @@ import { Button } from 'primereact/button';
 import { TabMenu } from 'primereact/tabmenu';
 import { Tag } from 'primereact/tag';
 import { ProgressBar } from 'primereact/progressbar';
+import { Avatar } from 'primereact/avatar';
 import { Dialog } from 'primereact/dialog';
 import { InputText } from 'primereact/inputtext';
 import { InputNumber } from 'primereact/inputnumber';
@@ -38,6 +39,13 @@ import { useWebSocket, WebSocketMessage } from '@/hooks/useWebSocket';
 import { useExerciseNotifications } from '@/contexts/ExerciseNotificationContext';
 
 const AUDIO_BASE_URL = API_BASE;
+
+const buildAvatarUrl = (path?: string | null) => {
+    if (!path) return null;
+    if (path.startsWith('http')) return path;
+    const normalized = path.startsWith('/') ? path : `/${path}`;
+    return `${API_BASE}${normalized}`;
+};
 
 type Role = 'THERAPIST' | 'STUDENT';
 type StudentExerciseFilter = 'ALL' | 'PENDING' | 'DONE' | 'LATE';
@@ -174,9 +182,7 @@ const CoursePage: React.FC = () => {
 
         progressReloadTimeoutRef.current = setTimeout(async () => {
             try {
-                console.log('Reloading progress for course:', courseId);
                 const data = await getCourseStudentsProgress(authToken, courseId);
-                console.log('Progress reloaded:', data);
                 setProgressList(data);
             } catch (err) {
                 console.error('Error reloading progress:', err);
@@ -196,13 +202,10 @@ const CoursePage: React.FC = () => {
     }, [role, course]);
     
     const handleWebSocketMessage = useCallback((message: WebSocketMessage) => {
-        console.log('Received WebSocket message:', message, { role: roleRef.current, courseId: courseRef.current?.id, hasToken: !!token });
-
         switch (message.type) {
             case 'exercise_published':
                 // Add new exercise to list
                 if (message.data) {
-                    console.log('Exercise published, current role:', roleRef.current, 'course:', courseRef.current?.id);
                     setExercises(prev => {
                         if (prev.some(ex => ex.id === message.data.id)) {
                             return prev;
@@ -212,19 +215,17 @@ const CoursePage: React.FC = () => {
                     
                     // Notify students
                     if (roleRef.current === 'STUDENT' && courseRef.current) {
-                        console.log('Showing notification to student, adding notification...');
                         addNotification({
                             courseId: courseRef.current.id,
+                            exerciseId: message.data.course_exercise_id || message.data.id,
+                            courseSlug: slug,
                             courseName: message.data.course_name,
                             exerciseName: message.data.exercise_name || message.data.name || 'Nuevo ejercicio',
                             therapistName: message.data.therapist_name,
                             summary: 'Nuevo ejercicio',
                             detail: `${message.data.therapist_name || 'El terapeuta'} ha publicado "${message.data.exercise_name || message.data.name || 'Nuevo ejercicio'}" en el curso "${message.data.course_name || 'Curso'}"`,
                         });
-                        console.log('Triggering refresh...');
                         triggerRefresh(courseRef.current.id);
-                    } else {
-                        console.log('Not showing notification - role:', roleRef.current, 'course:', courseRef.current?.id);
                     }
                 }
                 break;
@@ -243,9 +244,10 @@ const CoursePage: React.FC = () => {
 
                     // Notify students
                     if (roleRef.current === 'STUDENT' && courseRef.current) {
-                        console.log('Exercise deleted, notifying student...');
                         addNotification({
                             courseId: courseRef.current.id,
+                            exerciseId: message.data.course_exercise_id || message.data.id,
+                            courseSlug: slug,
                             courseName: message.data.course_name,
                             exerciseName: message.data.exercise_name || message.data.name || 'Ejercicio',
                             therapistName: message.data.therapist_name,
@@ -263,7 +265,6 @@ const CoursePage: React.FC = () => {
             case 'submission_deleted':
                 // Reload progress data for therapists
                 if (roleRef.current === 'THERAPIST' && courseRef.current && token) {
-                    console.log('Submission event detected, reloading progress...');
                     reloadProgressWithDebounce(token, courseRef.current.id);
                     // También recargar la lista de estudiantes para refrescar barra y última entrega
                     getCourseStudents(token, courseRef.current.id)
@@ -322,8 +323,6 @@ const CoursePage: React.FC = () => {
         // Only reload if the refresh is for this course
         if (refreshTrigger.courseId !== courseRef.current.id) return;
 
-        console.log('Refresh triggered for course:', refreshTrigger.courseId, 'current role:', roleRef.current);
-
         // Reload exercises for students (full list + status list)
         if (roleRef.current === 'STUDENT') {
             setLoadingExercises(true);
@@ -334,7 +333,6 @@ const CoursePage: React.FC = () => {
                 getStudentExercisesForCourse(token, courseRef.current.id),
             ])
                 .then(([data, studentData]) => {
-                    console.log('Reloaded exercises for student:', data);
                     setExercises(data.filter((ce) => !ce.is_deleted));
                     setStudentExercises(studentData);
                 })
@@ -764,18 +762,27 @@ const CoursePage: React.FC = () => {
                         const total = s.total_exercises || 0;
                         const done = s.completed_exercises || 0;
                         const percent = total ? Math.round((done / total) * 100) : 0;
+                        const avatarUrl = buildAvatarUrl(s.avatar_path);
 
                         return (
                             <div key={s.course_student_id} className="col-12 md:col-6">
                                 <div className="card flex flex-column gap-2">
-                                    <div className="flex justify-content-between align-items-center">
-                                        <div>
-                                            <h4 className="m-0 text-base font-semibold">
-                                                {s.student_name}
-                                            </h4>
-                                            <p className="m-0 text-600 text-sm">
-                                                ID estudiante: {s.student_id}
-                                            </p>
+                                    <div className="flex justify-content-between align-items-center gap-3">
+                                        <div className="flex align-items-center gap-3">
+                                            <Avatar
+                                                image={avatarUrl || undefined}
+                                                label={!avatarUrl ? s.student_name?.charAt(0).toUpperCase() : undefined}
+                                                shape="circle"
+                                                size="large"
+                                            />
+                                            <div>
+                                                <h4 className="m-0 text-base font-semibold">
+                                                    {s.student_name}
+                                                </h4>
+                                                <p className="m-0 text-600 text-sm">
+                                                    ID estudiante: {s.student_id}
+                                                </p>
+                                            </div>
                                         </div>
                                         <Tag
                                             value={`${done}/${total}`}
@@ -1248,6 +1255,7 @@ const CoursePage: React.FC = () => {
                                 const percent = total
                                     ? Math.round((done / total) * 100)
                                     : 0;
+                                const avatarUrl = buildAvatarUrl(p.avatar_path);
 
                                 const severity =
                                     percent >= 70
@@ -1270,8 +1278,16 @@ const CoursePage: React.FC = () => {
                                         onClick={() => router.push(`/courses/${slug}/students/${p.student_id}`)}
                                         style={{ cursor: 'pointer' }}
                                     >
-                                        <td className="p-3 font-medium text-800">
-                                            {p.full_name}
+                                        <td className="p-3">
+                                            <div className="flex align-items-center gap-3">
+                                                <Avatar
+                                                    image={avatarUrl || undefined}
+                                                    label={!avatarUrl ? p.full_name?.charAt(0).toUpperCase() : undefined}
+                                                    shape="circle"
+                                                    size="large"
+                                                />
+                                                <span className="font-medium text-800">{p.full_name}</span>
+                                            </div>
                                         </td>
                                         <td className="p-3 text-700">{p.email}</td>
                                         <td className="p-3 text-700">

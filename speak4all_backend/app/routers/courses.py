@@ -273,6 +273,7 @@ def list_course_students(
             models.CourseStudent.id.label("course_student_id"),
             models.User.id.label("student_id"),
             models.User.full_name.label("student_name"),
+            models.User.avatar_path.label("avatar_path"),
             func.count(
                 func.nullif(
                     models.Submission.status != models.SubmissionStatus.DONE,
@@ -308,6 +309,7 @@ def list_course_students(
                 course_student_id=r.course_student_id,
                 student_id=r.student_id,
                 student_name=r.student_name,
+                avatar_path=r.avatar_path,
                 completed_exercises=int(r.completed_exercises or 0),
                 total_exercises=int(total_exercises or 0),
                 last_submission_at=r.last_submission_at,

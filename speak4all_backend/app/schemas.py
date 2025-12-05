@@ -41,6 +41,8 @@ class UserBase(BaseModel):
 class UserOut(UserBase):
     id: int
     created_at: datetime
+    avatar_path: Optional[str] = None
+    has_password: bool = False  # Indica si el usuario tiene contraseña configurada
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -144,6 +146,7 @@ class StudentProgressOut(BaseModel):
     course_student_id: int
     student_id: int
     student_name: str
+    avatar_path: Optional[str] = None
     completed_exercises: int
     total_exercises: int
     last_submission_at: Optional[datetime] = None
@@ -265,6 +268,7 @@ class StudentProgressSummary(BaseModel):
     student_id: int
     full_name: str
     email: str
+    avatar_path: Optional[str] = None
     total_exercises: int
     done_exercises: int
     last_submission_at: Optional[datetime] = None
@@ -368,3 +372,17 @@ class CourseGroupAssignmentOut(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# ==== USER PROFILE ====
+
+class UserProfileUpdate(BaseModel):
+    """Schema para actualizar perfil de usuario"""
+    full_name: Optional[str] = None
+    email: Optional[str] = None
+
+
+class ChangePasswordRequest(BaseModel):
+    """Schema para cambiar contraseña"""
+    current_password: Optional[str] = None  # Opcional para usuarios sin contraseña previa
+    new_password: str

@@ -7,9 +7,11 @@ import { NotificationType } from './StoredNotificationContext';
 export interface ExerciseNotification {
     id: string;
     courseId: number;
+    exerciseId: number;
     exerciseName: string;
     therapistName?: string;
     courseName?: string;
+    courseSlug?: string;
     timestamp: Date;
     summary?: string;
     detail?: string;
@@ -41,18 +43,12 @@ export function ExerciseNotificationProvider({ children }: { children: ReactNode
     const addNotification = useCallback((notification: Omit<ExerciseNotification, 'id' | 'timestamp'>) => {
         // Build dedup key - MUY específico para evitar cualquier duplicado
         const dedupKey = `${notification.courseId}:${notification.exerciseName}:${notification.summary}:${Date.now().toString().slice(-3)}`;
-        console.log('=== addNotification called ===');
-        console.log('dedupKey:', dedupKey);
-        console.log('dedupRef.current has key:', dedupRef.current.has(dedupKey));
-        console.log('isReady:', isReady);
         
         if (dedupRef.current.has(dedupKey)) {
-            console.log('❌ Notification BLOCKED - duplicate in ExerciseNotificationContext');
             return;
         }
         
         if (!isReady) {
-            console.log('⏳ ExerciseNotificationContext not ready yet, queueing notification');
             // Reintentar después de 100ms si no está listo
             setTimeout(() => {
                 addNotification(notification);
@@ -61,11 +57,9 @@ export function ExerciseNotificationProvider({ children }: { children: ReactNode
         }
         
         dedupRef.current.add(dedupKey);
-        console.log('✅ Added to dedupRef - Will be removed after 5s');
         // Mantener en dedup durante 5 segundos para prevenir duplicados
         setTimeout(() => {
             dedupRef.current.delete(dedupKey);
-            console.log('🧹 Dedup key removed after 5s:', dedupKey);
         }, 5000);
 
         const id = `${Date.now()}-${Math.random()}`;
@@ -81,13 +75,15 @@ export function ExerciseNotificationProvider({ children }: { children: ReactNode
         setNotifications((prev) => [newNotification, ...prev]);
 
         // Mostrar el toast usando el NotificationContext
-        console.log('📤 Calling showNotification with:', newNotification.summary);
         showNotification({
             severity: newNotification.severity || 'info',
             summary: newNotification.summary || 'Nuevo ejercicio',
             detail: newNotification.detail || `${newNotification.therapistName || 'El terapeuta'} ha publicado un nuevo ejercicio: "${newNotification.exerciseName}"` + (newNotification.courseName ? ` en el curso "${newNotification.courseName}"` : ''),
             life: 5000,
             type: newNotification.type || 'exercise_published',
+            exerciseId: newNotification.exerciseId,
+            courseId: newNotification.courseId,
+            courseSlug: newNotification.courseSlug,
         });
 
         // Auto-remove notification after 10 seconds
@@ -97,7 +93,6 @@ export function ExerciseNotificationProvider({ children }: { children: ReactNode
     }, [showNotification, isReady]);
 
     const triggerRefresh = useCallback((courseId: number) => {
-        console.log('Triggering refresh for course:', courseId);
         setRefreshTrigger({ courseId, timestamp: Date.now() });
     }, []);
 

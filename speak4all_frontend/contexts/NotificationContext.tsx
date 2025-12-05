@@ -10,6 +10,10 @@ export interface Notification {
   detail?: string;
   life?: number;
   type?: NotificationType;
+  exerciseId?: number;
+  submissionId?: number;
+  courseId?: number;
+  courseSlug?: string;
 }
 
 interface NotificationContextType {
@@ -31,7 +35,6 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
   // Esperar a que el componente se monte
   useEffect(() => {
-    console.log('NotificationProvider mounted, setting isReady = true');
     setIsReady(true);
 
     if (typeof window !== 'undefined') {
@@ -60,7 +63,6 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       const notification = notificationQueueRef.current.shift();
       
       if (notification && toastRef.current) {
-        console.log('Processing queued notification:', notification.summary);
         toastRef.current.show({
           severity: notification.severity,
           summary: notification.summary,
@@ -85,17 +87,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     // Crear key de deduplicación única y específica
     const notifKey = `${notification.severity}:${notification.summary}:${notification.detail || ''}`;
     
-    console.log('=== showNotification called ===');
-    console.log('notification:', notification);
-    console.log('notifKey:', notifKey);
-    console.log('Already shown:', shownNotificationsRef.current.has(notifKey));
-    console.log('isReady:', isReady);
-    console.log('toastRef.current exists:', !!toastRef.current);
-    console.log('toastRef.current ref:', toastRef.current);
-    
     // BLOQUEAR si ya se mostró esta notificación
     if (shownNotificationsRef.current.has(notifKey)) {
-      console.log('❌ Toast BLOCKED - identical notification already shown');
       return;
     }
     
@@ -107,6 +100,10 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       summary: notification.summary,
       detail: notification.detail,
       type: notificationType,
+      exerciseId: notification.exerciseId,
+      submissionId: notification.submissionId,
+      courseId: notification.courseId,
+      courseSlug: notification.courseSlug,
     });
     
     // Bloqueo por rol: terapeutas solo ven entregas (creada/anulada); estudiantes solo ejercicios (publicado/eliminado)
@@ -117,7 +114,6 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       notificationType === 'exercise_published' || notificationType === 'exercise_deleted';
 
     if (role === 'THERAPIST' && !allowedForTherapist) {
-      console.log(`🔇 Toast BLOCKED - type ${notificationType} no permitido para terapeuta`);
       shownNotificationsRef.current.add(notifKey);
       setTimeout(() => {
         shownNotificationsRef.current.delete(notifKey);
@@ -126,7 +122,6 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     }
 
     if (role === 'STUDENT' && !allowedForStudent) {
-      console.log(`🔇 Toast BLOCKED - type ${notificationType} no permitido para estudiante`);
       shownNotificationsRef.current.add(notifKey);
       setTimeout(() => {
         shownNotificationsRef.current.delete(notifKey);
@@ -136,7 +131,6 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
     // Si este tipo de notificación está deshabilitado, no mostrar toast
     if (!storedNotifications.toastEnabledTypes.has(notificationType)) {
-      console.log(`🔇 Toast BLOCKED - notification type "${notificationType}" is disabled`);
       shownNotificationsRef.current.add(notifKey);
       setTimeout(() => {
         shownNotificationsRef.current.delete(notifKey);
@@ -146,7 +140,6 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     
     // Si los toasts están silenciados globalmente, no mostrar
     if (!storedNotifications.showAllToasts) {
-      console.log('🔇 Toast BLOCKED - all toasts are muted');
       shownNotificationsRef.current.add(notifKey);
       setTimeout(() => {
         shownNotificationsRef.current.delete(notifKey);
@@ -156,28 +149,22 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     
     // SIEMPRE queue si no está listo o si el ref no existe
     if (!toastRef.current) {
-      console.log('⏳ Toast ref not available yet, queuing notification');
       notificationQueueRef.current.push(notification);
       return;
     }
 
     if (!isReady) {
-      console.log('⏳ Toast not ready yet, queuing notification');
       notificationQueueRef.current.push(notification);
       return;
     }
 
     // Marcar como mostrado
     shownNotificationsRef.current.add(notifKey);
-    console.log('✅ Added to shownNotifications - Will be removed after 5s');
     
     // Mantener la restricción por 5 segundos para bloquear duplicados
     setTimeout(() => {
       shownNotificationsRef.current.delete(notifKey);
-      console.log('🧹 Toast dedup key removed after 5s:', notifKey);
     }, 5000);
-
-    console.log('📤 Calling toast.show()');
     try {
       toastRef.current.show({
         severity: notification.severity,
@@ -186,7 +173,6 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         life: notification.life || 4000,
         sticky: false,
       });
-      console.log('✅ Toast.show() executed successfully');
     } catch (err) {
       console.error('❌ Error calling toast.show():', err);
       // Si hay error, meter a la cola para reintentar

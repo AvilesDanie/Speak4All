@@ -63,6 +63,14 @@ const AppBreadcrumb = () => {
 
     const handleLogout = () => {
         if (typeof window !== 'undefined') {
+            // Limpiar todas las notificaciones guardadas
+            const keys = Object.keys(localStorage);
+            keys.forEach(key => {
+                if (key.startsWith('stored_notifications_')) {
+                    localStorage.removeItem(key);
+                }
+            });
+            
             localStorage.removeItem('backend_synced');
             localStorage.removeItem('backend_token');
             localStorage.removeItem('backend_user');

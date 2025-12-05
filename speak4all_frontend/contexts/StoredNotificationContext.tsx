@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useCallback, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useCallback, useState, ReactNode, useEffect } from 'react';
 
 // Tipos específicos para filtrar por evento
 export type NotificationType =
@@ -17,6 +17,10 @@ export interface StoredNotification {
   summary: string;
   detail?: string;
   type: NotificationType;
+  exerciseId?: number;
+  submissionId?: number;
+  courseId?: number;
+  courseSlug?: string;
 }
 
 interface StoredNotificationContextType {
@@ -39,6 +43,8 @@ const StoredNotificationContext = createContext<StoredNotificationContextType | 
 
 export function StoredNotificationProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState<StoredNotification[]>([]);
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [userId, setUserId] = useState<number | null>(null);
   const [showAllToasts, setShowAllToasts] = useState(true);
   const [toastEnabledTypes, setToastEnabledTypes] = useState<Set<NotificationType>>(
     new Set([
@@ -58,6 +64,53 @@ export function StoredNotificationProvider({ children }: { children: ReactNode }
       'submission_deleted',
     ] as NotificationType[])
   );
+
+  // Obtener userId al montar
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    const userRaw = localStorage.getItem('backend_user');
+    if (userRaw) {
+      try {
+        const user = JSON.parse(userRaw) as { id: number };
+        setUserId(user.id);
+      } catch (err) {
+        console.error('Error parsing user:', err);
+      }
+    }
+  }, []);
+
+  // Cargar notificaciones desde localStorage cuando tengamos userId
+  useEffect(() => {
+    if (typeof window === 'undefined' || userId === null) return;
+    
+    const storageKey = `stored_notifications_${userId}`;
+    const stored = localStorage.getItem(storageKey);
+    
+    // Limpiar notificaciones existentes antes de cargar las nuevas
+    setNotifications([]);
+    
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        const notificationsWithDates = parsed.map((n: any) => ({
+          ...n,
+          timestamp: new Date(n.timestamp)
+        }));
+        setNotifications(notificationsWithDates);
+      } catch (err) {
+        console.error('❌ Error loading notifications from localStorage:', err);
+      }
+    }
+    setIsLoaded(true);
+  }, [userId]);
+
+  // Guardar notificaciones en localStorage cuando cambien (solo después de cargar)
+  useEffect(() => {
+    if (typeof window === 'undefined' || !isLoaded || userId === null) return;
+    const storageKey = `stored_notifications_${userId}`;
+    localStorage.setItem(storageKey, JSON.stringify(notifications));
+  }, [notifications, isLoaded, userId]);
 
   const addNotification = useCallback((notification: Omit<StoredNotification, 'id' | 'timestamp'>) => {
     const id = `${Date.now()}-${Math.random()}`;

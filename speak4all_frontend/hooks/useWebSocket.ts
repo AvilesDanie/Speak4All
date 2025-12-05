@@ -49,7 +49,6 @@ export function useWebSocket({ courseId, token, onMessage, enabled = true }: Use
       const ws = new WebSocket(url);
 
       ws.onopen = () => {
-        console.log(`WebSocket connected to course ${courseId}`);
         setIsConnected(true);
         setError(null);
       };
@@ -57,7 +56,6 @@ export function useWebSocket({ courseId, token, onMessage, enabled = true }: Use
       ws.onmessage = (event) => {
         try {
           const parsedMessage: WebSocketMessage = JSON.parse(event.data);
-          console.log('WebSocket message received:', parsedMessage);
           setMessage(parsedMessage);
           onMessageRef.current?.(parsedMessage);
         } catch (err) {
@@ -71,14 +69,12 @@ export function useWebSocket({ courseId, token, onMessage, enabled = true }: Use
       };
 
       ws.onclose = (event) => {
-        console.log(`WebSocket disconnected from course ${courseId}`, event.code, event.reason);
         setIsConnected(false);
         wsRef.current = null;
 
         // Attempt reconnection after 3 seconds if not a normal closure
         if (event.code !== 1000 && enabled) {
           reconnectTimeoutRef.current = setTimeout(() => {
-            console.log('Attempting to reconnect WebSocket...');
             connect();
           }, 3000);
         }

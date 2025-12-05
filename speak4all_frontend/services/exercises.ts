@@ -1,5 +1,4 @@
 // Centralized API service for exercise-related endpoints
-// Uses NEXT_PUBLIC_API_BASE_URL (defaults to http://localhost:8000)
 
 import { API_BASE, fetchJSON } from './apiClient';
 

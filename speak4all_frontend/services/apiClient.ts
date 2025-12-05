@@ -1,7 +1,7 @@
 // Generic API client helpers
 // Centraliza la base y manejo de headers. Usa NEXT_PUBLIC_API_BASE_URL si está definida.
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL;
 
 export interface RequestOptions extends RequestInit {
   token?: string | null;
@@ -20,7 +20,15 @@ export async function fetchJSON<T = any>(path: string, options: RequestOptions =
   });
   if (!res.ok) {
     const text = await safeReadText(res);
-    throw new Error(`API ${path} ${res.status}: ${text}`);
+    // Intentar parsear el mensaje de error del backend
+    let errorMessage = text;
+    try {
+      const errorData = JSON.parse(text);
+      errorMessage = errorData.detail || errorData.message || text;
+    } catch {
+      // Si no es JSON, usar el texto tal cual
+    }
+    throw new Error(errorMessage);
   }
   if (skipJson || res.status === 204) {
     // @ts-expect-error intencional para devolver undefined como T

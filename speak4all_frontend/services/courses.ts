@@ -110,6 +110,7 @@ export interface StudentInCourse {
   course_student_id: number;
   student_id: number;
   student_name: string;
+  avatar_path?: string | null;
   completed_exercises: number;
   total_exercises: number;
   last_submission_at?: string | null;
@@ -119,6 +120,7 @@ export interface StudentProgressSummary {
   student_id: number;
   full_name: string;
   email: string;
+  avatar_path?: string | null;
   total_exercises: number;
   done_exercises: number;
   last_submission_at?: string | null;

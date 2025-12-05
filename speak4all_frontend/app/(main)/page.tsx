@@ -17,7 +17,6 @@ export default function Dashboard() {
     useEffect(() => {
         // Solo ejecutar cuando la autenticación haya terminado de cargar Y tengamos token
         if (loading || !token) {
-            console.log('Skipping stats fetch - loading:', loading, 'token exists:', !!token);
             return;
         }
         
@@ -35,7 +34,6 @@ export default function Dashboard() {
                 const exercises = exercisesData.total;
                 const submissionsData = submissionsRes && submissionsRes.ok ? await submissionsRes.json() : { count: 0 };
 
-                console.log('Stats loaded:', { courses, exercises, submissions: submissionsData.count });
                 setStats({ courses, exercises, submissions: submissionsData.count });
             } catch (err) {
                 console.error('Error fetching stats:', err);

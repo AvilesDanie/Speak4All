@@ -45,9 +45,6 @@ export function useSubmissionNotifications(message: WebSocketMessage | null) {
       return;
     }
 
-    console.log('useSubmissionNotifications received message:', message);
-    console.log('isReady:', isReady, 'userRole:', userRef.current.role);
-
     // Solo terapeutas deben ver estas notificaciones
     if (userRef.current.role !== 'THERAPIST') {
       return;
@@ -56,7 +53,6 @@ export function useSubmissionNotifications(message: WebSocketMessage | null) {
     // Validar que el mensaje está dirigido al terapeuta dueño del curso
     const therapistId = (message.data as any)?.therapist_id;
     if (therapistId && userRef.current.id && therapistId !== userRef.current.id) {
-      console.log('Notification not for this therapist, skipping');
       return;
     }
 
@@ -65,7 +61,6 @@ export function useSubmissionNotifications(message: WebSocketMessage | null) {
     
     // Si es el mismo mensaje reciente, ignorarlo (debounce)
     if (messageId === lastMessageIdRef.current) {
-      console.log('Duplicate message detected in notification hook, skipping');
       return;
     }
 
@@ -83,7 +78,6 @@ export function useSubmissionNotifications(message: WebSocketMessage | null) {
 
     if (message.type === 'submission_created') {
       const audioStatus = hasAudio ? 'con audio' : 'sin audio';
-      console.log('Showing submission_created notification');
       showNotification({
         severity: 'success',
         summary: `Nueva entrega`,
@@ -93,7 +87,6 @@ export function useSubmissionNotifications(message: WebSocketMessage | null) {
       });
     } else if (message.type === 'submission_updated') {
       const audioStatus = hasAudio ? 'con audio' : 'sin audio';
-      console.log('Showing submission_updated notification');
       showNotification({
         severity: 'info',
         summary: `Entrega actualizada`,
@@ -102,7 +95,6 @@ export function useSubmissionNotifications(message: WebSocketMessage | null) {
         type: 'submission_updated',
       });
     } else if (message.type === 'submission_deleted') {
-      console.log('Showing submission_deleted notification with data:', data);
       showNotification({
         severity: 'warn',
         summary: `Entrega anulada`,

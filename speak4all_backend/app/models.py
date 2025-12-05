@@ -39,6 +39,8 @@ class User(Base):
     role = Column(Enum(UserRole), nullable=False)
     # Autenticación local
     password_hash = Column(String, nullable=True)
+    # Foto de perfil (ruta relativa en media/avatars/)
+    avatar_path = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
     is_active = Column(Boolean, default=True)
     deleted_at = Column(DateTime(timezone=True), nullable=True)

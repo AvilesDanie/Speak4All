@@ -151,7 +151,7 @@ export function NotificationBell() {
               {allowedTypes.map((type) => {
                 const count = notifications.filter((n) => n.type === type).length;
                 return (
-                  <button
+                  <div
                     key={`tray-${type}`}
                     onClick={() => toggleTrayType(type)}
                     className="flex flex-column align-items-center justify-content-center gap-1 p-2 border-round surface-50 hover:surface-100 transition relative"
@@ -184,7 +184,7 @@ export function NotificationBell() {
                         style={{ padding: '0.1rem', height: '20px', width: '20px', position: 'absolute', top: '2px', right: '2px' }}
                       />
                     )}
-                  </button>
+                  </div>
                 );
               })}
             </div>

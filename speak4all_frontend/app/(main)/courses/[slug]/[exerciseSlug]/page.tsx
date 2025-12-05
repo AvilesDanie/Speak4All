@@ -188,10 +188,8 @@ useEffect(() => {
     // Efecto para obtener URL firmada del audio del ejercicio
     useEffect(() => {
         if (courseExercise?.exercise?.id && token) {
-            console.log('Obteniendo URL de audio para ejercicio ID:', courseExercise.exercise.id);
             getExerciseAudioUrl(courseExercise.exercise.id, token)
                 .then(url => {
-                    console.log('URL de audio obtenida:', url);
                     setExerciseAudioUrl(url);
                 })
                 .catch(err => {
@@ -216,7 +214,6 @@ useEffect(() => {
             const data = message.data as any;
             // Si el ejercicio eliminado es el que está viendo el estudiante
             if (data.course_exercise_id === courseExerciseId || data.id === courseExerciseId) {
-                console.log('[Exercise Detail] Exercise was deleted, showing modal');
                 setExerciseDeletedModal(true);
             }
         } else if (message.type === 'submission_deleted') {

@@ -5,7 +5,8 @@ export async function POST(req: NextRequest) {
     const payload = await req.json();
 
     // Aquí llamamos a tu backend FastAPI
-    const res = await fetch("http://localhost:8000/auth/google", {
+    const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+    const res = await fetch(`${apiBase}/auth/google`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),

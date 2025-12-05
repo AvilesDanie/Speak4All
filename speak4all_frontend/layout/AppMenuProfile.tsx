@@ -1,98 +1,107 @@
-import { classNames } from 'primereact/utils';
-import React, { useContext, useEffect, useRef } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import { Tooltip } from 'primereact/tooltip';
 import { LayoutContext } from './context/layoutcontext';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { usePathname } from 'next/navigation';
+import { useRouter } from 'next/navigation';
+import { API_BASE } from '@/services/apiClient';
+import { getMyAvatarUrl, getMyProfile, UserProfile } from '@/services/profile';
 
 const AppMenuProfile = () => {
-    const { layoutState, layoutConfig, isSlim, isHorizontal, onMenuProfileToggle } = useContext(LayoutContext);
+    const { layoutConfig, isSlim } = useContext(LayoutContext);
     const router = useRouter();
-    const ulRef = useRef<HTMLUListElement | null>(null);
-    const pathname = usePathname();
-    const searchParams = useSearchParams();
+    const [user, setUser] = useState<UserProfile | null>(null);
+    const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
-    const hiddenClassName = classNames({ hidden: layoutConfig.menuMode === 'drawer' && !layoutState.sidebarActive });
-
-    const toggleMenu = () => {
-        if (layoutState.menuProfileActive) {
-            setTimeout(() => {
-                (ulRef.current as any).style.maxHeight = '0';
-            }, 1);
-            (ulRef.current as any).style.opacity = '0';
-            if (isHorizontal()) {
-                (ulRef.current as any).style.transform = 'scaleY(0.8)';
-            }
-        } else {
-            setTimeout(() => {
-                (ulRef.current as any).style.maxHeight = (ulRef.current as any).scrollHeight.toString() + 'px';
-            }, 1);
-            (ulRef.current as any).style.opacity = '1';
-            if (isHorizontal()) {
-                (ulRef.current as any).style.transform = 'scaleY(1)';
-            }
-        }
-        onMenuProfileToggle();
+    const buildAvatarUrl = (path?: string | null) => {
+        if (!path) return null;
+        if (path.startsWith('http')) return path;
+        const normalized = path.startsWith('/') ? path : `/${path}`;
+        return `${API_BASE}${normalized}`;
     };
 
     useEffect(() => {
-        if (layoutState.menuProfileActive) toggleMenu();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [pathname, searchParams]);
+        const buildAvatarUrl = (path?: string | null) => {
+            if (!path) return null;
+            if (path.startsWith('http')) return path;
+            const normalized = path.startsWith('/') ? path : `/${path}`;
+            return `${API_BASE}${normalized}`;
+        };
+
+        const loadUser = async () => {
+            const token = window.localStorage.getItem('backend_token');
+            const cachedUserRaw = window.localStorage.getItem('backend_user');
+
+            // Set cached data first for instant paint
+            if (cachedUserRaw) {
+                try {
+                    const cachedUser = JSON.parse(cachedUserRaw) as UserProfile;
+                    setUser(cachedUser);
+                    setAvatarUrl(buildAvatarUrl(cachedUser.avatar_path));
+                } catch (err) {
+                    console.error('Error parsing user data:', err);
+                }
+            }
+
+            if (!token) return;
+
+            try {
+                const freshUser = await getMyProfile(token);
+                setUser(freshUser);
+
+                // Persist refreshed user data
+                window.localStorage.setItem('backend_user', JSON.stringify(freshUser));
+
+                // Prefer dedicated avatar endpoint if available
+                const avatarData = await getMyAvatarUrl(token).catch(() => null);
+                const url = avatarData?.url ? buildAvatarUrl(avatarData.url) : buildAvatarUrl(freshUser.avatar_path);
+                setAvatarUrl(url);
+            } catch (err) {
+                console.error('Error loading profile for menu:', err);
+            }
+        };
+
+        loadUser();
+    }, []);
+
+    useEffect(() => {
+        const onAvatarUpdated = (e: any) => {
+            const detail = e?.detail || {};
+            setAvatarUrl(detail.url ?? buildAvatarUrl(detail.avatarPath));
+            setUser((prev) => (prev ? { ...prev, avatar_path: detail.avatarPath ?? null } : prev));
+        };
+
+        window.addEventListener('avatar-updated', onAvatarUpdated);
+        return () => window.removeEventListener('avatar-updated', onAvatarUpdated);
+    }, []);
 
     const tooltipValue = (tooltipText: string) => {
         return isSlim() ? tooltipText : null;
     };
 
+    const getRoleLabel = (role: string) => {
+        return role === 'THERAPIST' ? 'Terapeuta' : 'Estudiante';
+    };
+
+    const handleProfileClick = () => {
+        router.push('/profile');
+    };
+
     return (
         <React.Fragment>
             <div className="layout-menu-profile">
-                <Tooltip target={'.avatar-button'} content={tooltipValue('Profile') as string} />
-                <button className="avatar-button p-link border-noround" onClick={toggleMenu}>
-                    <img src="/layout/images/avatar/amyelsner.png" alt="avatar" style={{ width: '32px', height: '32px' }} />
-                    <span>
-                        <strong>Amy Elsner</strong>
-                        <small>Webmaster</small>
-                    </span>
-                    <i
-                        className={classNames('layout-menu-profile-toggler pi pi-fw', {
-                            'pi-angle-down': layoutConfig.menuProfilePosition === 'start' || isHorizontal(),
-                            'pi-angle-up': layoutConfig.menuProfilePosition === 'end' && !isHorizontal()
-                        })}
-                    ></i>
-                </button>
-
-                <ul ref={ulRef} className={classNames('menu-transition', { overlay: isHorizontal() })} style={{ overflow: 'hidden', maxHeight: 0, opacity: 0 }}>
-                    {layoutState.menuProfileActive && (
-                        <>
-                            <li>
-                                <button className="p-link" onClick={() => router.push('/profile/create')}>
-                                    <i className="pi pi-cog pi-fw"></i>
-                                    <span className={hiddenClassName}>Settings</span>
-                                </button>
-                            </li>
-
-                            <li>
-                                <button className="p-link" onClick={() => router.push('/profile/list')}>
-                                    <i className="pi pi-file-o pi-fw"></i>
-                                    <span className={hiddenClassName}>Profile</span>
-                                </button>
-                            </li>
-                            <li>
-                                <button className="p-link" onClick={() => router.push('/documentation')}>
-                                    <i className="pi pi-compass pi-fw"></i>
-                                    <span className={hiddenClassName}>Support</span>
-                                </button>
-                            </li>
-                            <li>
-                                <button className="p-link" onClick={() => router.push('/auth/login2')}>
-                                    <i className="pi pi-power-off pi-fw"></i>
-                                    <span className={hiddenClassName}>Logout</span>
-                                </button>
-                            </li>
-                        </>
+                <Tooltip target={'.avatar-button'} content={tooltipValue('Mi Perfil') as string} />
+                <button className="avatar-button p-link border-noround" onClick={handleProfileClick}>
+                    {avatarUrl ? (
+                        <img src={avatarUrl} alt="avatar" style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover' }} />
+                    ) : (
+                        <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'var(--primary-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 'bold' }}>
+                            {user?.full_name?.charAt(0).toUpperCase() || 'U'}
+                        </div>
                     )}
-                </ul>
+                    <span>
+                        <strong>{user?.full_name || 'Usuario'}</strong>
+                        <small>{user?.role ? getRoleLabel(user.role) : 'Cargando...'}</small>
+                    </span>
+                </button>
             </div>
         </React.Fragment>
     );
