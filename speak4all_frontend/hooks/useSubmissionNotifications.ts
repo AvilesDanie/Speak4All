@@ -89,6 +89,7 @@ export function useSubmissionNotifications(message: WebSocketMessage | null) {
         summary: `Nueva entrega`,
         detail: `${studentName} realizó una entrega al ejercicio "${exerciseName}" (${audioStatus})`,
         life: 5000,
+        type: 'submission_created',
       });
     } else if (message.type === 'submission_updated') {
       const audioStatus = hasAudio ? 'con audio' : 'sin audio';
@@ -98,6 +99,7 @@ export function useSubmissionNotifications(message: WebSocketMessage | null) {
         summary: `Entrega actualizada`,
         detail: `${studentName} actualizó su entrega del ejercicio "${exerciseName}" (${audioStatus})`,
         life: 5000,
+        type: 'submission_updated',
       });
     } else if (message.type === 'submission_deleted') {
       console.log('Showing submission_deleted notification with data:', data);
@@ -106,6 +108,7 @@ export function useSubmissionNotifications(message: WebSocketMessage | null) {
         summary: `Entrega anulada`,
         detail: `${studentName} anuló su entrega del ejercicio "${exerciseName}"`,
         life: 4000,
+        type: 'submission_deleted',
       });
     }
 

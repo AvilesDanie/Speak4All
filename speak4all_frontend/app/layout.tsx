@@ -2,6 +2,7 @@
 import { LayoutProvider } from '../layout/context/layoutcontext';
 import { PrimeReactProvider } from 'primereact/api';
 import { SessionProvider } from 'next-auth/react';
+import { StoredNotificationProvider } from '@/contexts/StoredNotificationContext';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { ExerciseNotificationProvider } from '@/contexts/ExerciseNotificationContext';
 import { GlobalWebSocketListener } from '@/components/GlobalWebSocketListener';
@@ -22,14 +23,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <body>
                 <SessionProvider>
                     <PrimeReactProvider>
-                        <NotificationProvider>
-                            <ExerciseNotificationProvider>
-                                <GlobalWebSocketListener />
-                                <GlobalSubmissionNotifier />
-                                <GlobalExerciseNotifier />
-                                <LayoutProvider>{children}</LayoutProvider>
-                            </ExerciseNotificationProvider>
-                        </NotificationProvider>
+                        <StoredNotificationProvider>
+                            <NotificationProvider>
+                                <ExerciseNotificationProvider>
+                                    <GlobalWebSocketListener />
+                                    <GlobalSubmissionNotifier />
+                                    <GlobalExerciseNotifier />
+                                    <LayoutProvider>{children}</LayoutProvider>
+                                </ExerciseNotificationProvider>
+                            </NotificationProvider>
+                        </StoredNotificationProvider>
                     </PrimeReactProvider>
                 </SessionProvider>
             </body>

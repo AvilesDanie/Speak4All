@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useCallback, ReactNode, useRef, useEffect } from 'react';
 import { useNotification } from './NotificationContext';
+import { NotificationType } from './StoredNotificationContext';
 
 export interface ExerciseNotification {
     id: string;
@@ -13,6 +14,7 @@ export interface ExerciseNotification {
     summary?: string;
     detail?: string;
     severity?: 'info' | 'warn' | 'error' | 'success';
+    type?: NotificationType;
 }
 
 interface ExerciseNotificationContextType {
@@ -85,6 +87,7 @@ export function ExerciseNotificationProvider({ children }: { children: ReactNode
             summary: newNotification.summary || 'Nuevo ejercicio',
             detail: newNotification.detail || `${newNotification.therapistName || 'El terapeuta'} ha publicado un nuevo ejercicio: "${newNotification.exerciseName}"` + (newNotification.courseName ? ` en el curso "${newNotification.courseName}"` : ''),
             life: 5000,
+            type: newNotification.type || 'exercise_published',
         });
 
         // Auto-remove notification after 10 seconds

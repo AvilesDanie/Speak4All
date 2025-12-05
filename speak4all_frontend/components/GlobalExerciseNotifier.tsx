@@ -147,6 +147,7 @@ function ExerciseListener({ courseId, token, seenExerciseIdsRef }: ExerciseListe
                     therapistName: msg.data?.therapist_name,
                     summary: "Nuevo ejercicio",
                     detail: `${msg.data?.therapist_name || "El terapeuta"} ha publicado \"${msg.data?.exercise_name || msg.data?.name || "Nuevo ejercicio"}\" en el curso \"${courseName}\"`,
+                    type: "exercise_published",
                 });
                 triggerRefresh(courseId);
             } else if (msg.type === "exercise_deleted") {
@@ -158,6 +159,7 @@ function ExerciseListener({ courseId, token, seenExerciseIdsRef }: ExerciseListe
                     summary: "Ejercicio eliminado",
                     detail: `${msg.data?.therapist_name || "El terapeuta"} eliminó \"${msg.data?.exercise_name || "Ejercicio"}\" del curso \"${courseName}\"`,
                     severity: "warn",
+                    type: "exercise_deleted",
                 });
                 triggerRefresh(courseId);
             }

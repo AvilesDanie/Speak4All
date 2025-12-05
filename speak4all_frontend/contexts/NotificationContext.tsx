@@ -2,12 +2,14 @@
 
 import React, { createContext, useContext, useRef, ReactNode, useCallback, useState, useEffect } from 'react';
 import { Toast } from 'primereact/toast';
+import { useStoredNotifications, NotificationType } from './StoredNotificationContext';
 
 export interface Notification {
   severity: 'success' | 'info' | 'warn' | 'error';
   summary: string;
   detail?: string;
   life?: number;
+  type?: NotificationType;
 }
 
 interface NotificationContextType {
@@ -22,13 +24,27 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const [isReady, setIsReady] = useState(false);
   const notificationQueueRef = useRef<Notification[]>([]);
   const processingQueueRef = useRef(false);
+  const userRoleRef = useRef<string | null>(null);
   // Deduplicación a nivel de Toast - AGRESIVA
   const shownNotificationsRef = useRef<Set<string>>(new Set());
+  const storedNotifications = useStoredNotifications();
 
   // Esperar a que el componente se monte
   useEffect(() => {
     console.log('NotificationProvider mounted, setting isReady = true');
     setIsReady(true);
+
+    if (typeof window !== 'undefined') {
+      const userRaw = window.localStorage.getItem('backend_user');
+      if (userRaw) {
+        try {
+          const user = JSON.parse(userRaw) as { role?: string };
+          userRoleRef.current = user.role || null;
+        } catch {
+          userRoleRef.current = null;
+        }
+      }
+    }
   }, []);
 
   // Procesar cola de notificaciones cuando está listo
@@ -83,6 +99,61 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       return;
     }
     
+    // SIEMPRE guardar en el historial de notificaciones
+    const notificationType: NotificationType =
+      notification.type || 'exercise_published';
+    storedNotifications.addNotification({
+      severity: notification.severity,
+      summary: notification.summary,
+      detail: notification.detail,
+      type: notificationType,
+    });
+    
+    // Bloqueo por rol: terapeutas solo ven entregas (creada/anulada); estudiantes solo ejercicios (publicado/eliminado)
+    const role = userRoleRef.current;
+    const allowedForTherapist =
+      notificationType === 'submission_created' || notificationType === 'submission_deleted';
+    const allowedForStudent =
+      notificationType === 'exercise_published' || notificationType === 'exercise_deleted';
+
+    if (role === 'THERAPIST' && !allowedForTherapist) {
+      console.log(`🔇 Toast BLOCKED - type ${notificationType} no permitido para terapeuta`);
+      shownNotificationsRef.current.add(notifKey);
+      setTimeout(() => {
+        shownNotificationsRef.current.delete(notifKey);
+      }, 5000);
+      return;
+    }
+
+    if (role === 'STUDENT' && !allowedForStudent) {
+      console.log(`🔇 Toast BLOCKED - type ${notificationType} no permitido para estudiante`);
+      shownNotificationsRef.current.add(notifKey);
+      setTimeout(() => {
+        shownNotificationsRef.current.delete(notifKey);
+      }, 5000);
+      return;
+    }
+
+    // Si este tipo de notificación está deshabilitado, no mostrar toast
+    if (!storedNotifications.toastEnabledTypes.has(notificationType)) {
+      console.log(`🔇 Toast BLOCKED - notification type "${notificationType}" is disabled`);
+      shownNotificationsRef.current.add(notifKey);
+      setTimeout(() => {
+        shownNotificationsRef.current.delete(notifKey);
+      }, 5000);
+      return;
+    }
+    
+    // Si los toasts están silenciados globalmente, no mostrar
+    if (!storedNotifications.showAllToasts) {
+      console.log('🔇 Toast BLOCKED - all toasts are muted');
+      shownNotificationsRef.current.add(notifKey);
+      setTimeout(() => {
+        shownNotificationsRef.current.delete(notifKey);
+      }, 5000);
+      return;
+    }
+    
     // SIEMPRE queue si no está listo o si el ref no existe
     if (!toastRef.current) {
       console.log('⏳ Toast ref not available yet, queuing notification');
@@ -121,7 +192,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       // Si hay error, meter a la cola para reintentar
       notificationQueueRef.current.push(notification);
     }
-  }, [isReady]);
+  }, [isReady, storedNotifications.showAllToasts, storedNotifications.toastEnabledTypes, storedNotifications]);
 
   return (
     <NotificationContext.Provider value={{ showNotification, toastRef }}>

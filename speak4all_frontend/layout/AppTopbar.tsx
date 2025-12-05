@@ -4,6 +4,7 @@ import type { AppTopbarRef } from '@/types';
 import Link from 'next/link';
 import { StyleClass } from 'primereact/styleclass';
 import { Ripple } from 'primereact/ripple';
+import { NotificationBell } from '@/components/NotificationBell';
 
 const AppTopbar = forwardRef<AppTopbarRef>((props, ref) => {
     const { onMenuToggle, onTopbarMenuToggle } = useContext(LayoutContext);
@@ -11,7 +12,6 @@ const AppTopbar = forwardRef<AppTopbarRef>((props, ref) => {
 
     const mobileButtonRef = useRef(null);
 
-    const bellRef = useRef(null);
     const avatarRef = useRef(null);
     const tableRef = useRef(null);
 
@@ -62,40 +62,7 @@ const AppTopbar = forwardRef<AppTopbarRef>((props, ref) => {
                             <i className="pi-fw pi pi-search"></i>
                         </li>
                         <li>
-                            <StyleClass nodeRef={bellRef} selector="@next" enterClassName="hidden" enterActiveClassName="px-scalein" leaveToClassName="hidden" leaveActiveClassName="px-fadeout" hideOnOutsideClick>
-                                <a className="p-ripple" ref={bellRef}>
-                                    <i className="pi pi-bell"></i>
-                                    <Ripple />
-                                </a>
-                            </StyleClass>
-                            <div className="hidden">
-                                <ul className="list-none p-0 m-0">
-                                    <li>
-                                        <a className="py-2 px-3 flex gap-2 cursor-pointer text-color hover:text-primary">
-                                            <i className="pi pi-fw pi-sliders-h text-lg"></i>
-                                            <span>Pending tasks</span>
-                                        </a>
-                                    </li>
-                                    <li>
-                                        <a className="py-2 px-3 flex gap-2 cursor-pointer text-color hover:text-primary">
-                                            <i className="pi pi-fw pi-calendar text-lg"></i>
-                                            <span>Meeting today at 3pm</span>
-                                        </a>
-                                    </li>
-                                    <li>
-                                        <a className="py-2 px-3 flex gap-2 cursor-pointer text-color hover:text-primary">
-                                            <i className="pi pi-fw pi-download text-lg"></i>
-                                            <span>Download documents</span>
-                                        </a>
-                                    </li>
-                                    <li>
-                                        <a className="py-2 px-3 flex gap-2 cursor-pointer text-color hover:text-primary">
-                                            <i className="pi pi-fw pi-bookmark text-lg"></i>
-                                            <span>Book flight</span>
-                                        </a>
-                                    </li>
-                                </ul>
-                            </div>
+                            <NotificationBell />
                         </li>
                         <li>
                             <StyleClass nodeRef={tableRef} selector="@next" enterClassName="hidden" enterActiveClassName="px-scalein" leaveToClassName="hidden" leaveActiveClassName="px-fadeout" hideOnOutsideClick>

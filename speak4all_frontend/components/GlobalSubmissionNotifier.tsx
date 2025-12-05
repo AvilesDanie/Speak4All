@@ -155,6 +155,7 @@ function SubmissionListener({ courseId, token, seenSubmissionIdsRef }: Submissio
                     summary: `Nueva entrega`,
                     detail: `${studentName} realizó una entrega al ejercicio "${exerciseName}" (${audioStatus})`,
                     life: 5000,
+                    type: 'submission_created',
                 });
             } else if (msg.type === 'submission_updated') {
                 const audioStatus = hasAudio ? 'con audio' : 'sin audio';
@@ -163,6 +164,7 @@ function SubmissionListener({ courseId, token, seenSubmissionIdsRef }: Submissio
                     severity: 'info',
                     summary: `Entrega actualizada`,
                     detail: `${studentName} actualizó su entrega del ejercicio "${exerciseName}" (${audioStatus})`,
+                    type: 'submission_updated',
                     life: 5000,
                 });
             } else if (msg.type === 'submission_deleted') {
@@ -171,6 +173,7 @@ function SubmissionListener({ courseId, token, seenSubmissionIdsRef }: Submissio
                     severity: 'warn',
                     summary: `Entrega anulada`,
                     detail: `${studentName} anuló su entrega del ejercicio "${exerciseName}"`,
+                    type: 'submission_deleted',
                     life: 4000,
                 });
             }
