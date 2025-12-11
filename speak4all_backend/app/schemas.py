@@ -108,17 +108,10 @@ class CourseJoinRequestOut(BaseModel):
     student_id: int
     status: JoinRequestStatus
     created_at: datetime
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-
-class CourseJoinRequestOut(BaseModel):
-    id: int
-    course_id: int
-    student_id: int
-    status: JoinRequestStatus
-    created_at: datetime
+    student_full_name: Optional[str] = None
+    student_email: Optional[str] = None
+    student_avatar_path: Optional[str] = None
+    student_avatar_url: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -57,7 +57,13 @@ app.include_router(observations.router, prefix="/observations", tags=["observati
 app.include_router(course_students.router, prefix="/course-students", tags=["course-students"])
 app.include_router(course_groups.router, prefix="/course-groups", tags=["course-groups"])
 app.include_router(exercise_folders.router, prefix="/exercise-folders", tags=["exercise-folders"])
+
 app.include_router(websocket.router, tags=["websocket"])
+
+# Endpoint de healthcheck para Docker y monitoreo
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
 
 @app.get("/")

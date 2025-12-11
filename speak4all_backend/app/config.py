@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     tts_voice_name: str = "coral"
 
     # === Google Cloud Storage ===
-    google_application_credentials: str
+    google_application_credentials: str | None = None
     gcp_bucket_name: str
 
     # === Audio ===

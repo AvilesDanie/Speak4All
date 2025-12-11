@@ -66,3 +66,8 @@ tts_build_*/
 
 
 .json
+
+
+
+Dockerfile
+.dockerignore

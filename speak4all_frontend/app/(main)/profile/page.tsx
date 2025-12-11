@@ -14,14 +14,14 @@ import { ProgressSpinner } from 'primereact/progressspinner';
 import { Divider } from 'primereact/divider';
 import { Dialog } from 'primereact/dialog';
 import Cropper, { Area } from 'react-easy-crop';
-import { 
-    getMyProfile, 
-    updateMyProfile, 
-    uploadAvatar, 
+import {
+    getMyProfile,
+    updateMyProfile,
+    uploadAvatar,
     deleteAvatar,
     getMyAvatarUrl,
     changePassword,
-    UserProfile 
+    UserProfile
 } from '@/services/profile';
 import { API_BASE } from '@/services/apiClient';
 
@@ -82,6 +82,7 @@ export default function ProfilePage() {
     const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
     const [uploadingAvatar, setUploadingAvatar] = useState(false);
     const [selectedFileName, setSelectedFileName] = useState<string>('');
+    const [cropperReady, setCropperReady] = useState(false);
 
     // Formulario de perfil
     const [fullName, setFullName] = useState('');
@@ -96,7 +97,7 @@ export default function ProfilePage() {
 
     // Detectar cambios
     const hasProfileChanges = profile && (fullName !== profile.full_name || email !== profile.email);
-    const hasPasswordInput = profile?.has_password 
+    const hasPasswordInput = profile?.has_password
         ? (currentPassword.trim() !== '' || newPassword.trim() !== '' || confirmPassword.trim() !== '')
         : (newPassword.trim() !== '' || confirmPassword.trim() !== '');
 
@@ -178,7 +179,7 @@ export default function ProfilePage() {
                 email: email,
             });
             setProfile(updated);
-            
+
             // Actualizar localStorage si cambió el nombre
             const userRaw = window.localStorage.getItem('backend_user');
             if (userRaw) {
@@ -187,6 +188,16 @@ export default function ProfilePage() {
                 user.email = updated.email;
                 window.localStorage.setItem('backend_user', JSON.stringify(user));
             }
+
+            // Disparar evento personalizado para notificar cambios de nombre al sidebar
+            window.dispatchEvent(
+                new CustomEvent('profile-updated', {
+                    detail: {
+                        fullName: updated.full_name,
+                        email: updated.email,
+                    },
+                })
+            );
 
             toast.current?.show({
                 severity: 'success',
@@ -227,7 +238,7 @@ export default function ProfilePage() {
         try {
             const updated = await uploadAvatar(token, file);
             setProfile(updated);
-            
+
             // Recargar URL del avatar
             const avatarData = await getMyAvatarUrl(token);
             if (avatarData.url) {
@@ -273,7 +284,7 @@ export default function ProfilePage() {
             rejectLabel: 'Cancelar',
             accept: async () => {
                 if (!token) return;
-                
+
                 try {
                     const updated = await deleteAvatar(token);
                     setProfile(updated);
@@ -287,7 +298,7 @@ export default function ProfilePage() {
                             },
                         })
                     );
-                    
+
                     toast.current?.show({
                         severity: 'success',
                         summary: 'Avatar eliminado',
@@ -343,7 +354,7 @@ export default function ProfilePage() {
 
         try {
             setChangingPassword(true);
-            
+
             // Si hay contraseña actual ingresada, enviarla. Si no, el backend lo manejará
             await changePassword(token, {
                 current_password: currentPassword || undefined,
@@ -384,391 +395,397 @@ export default function ProfilePage() {
 
     return (
         <>
-        <div className="grid">
-            <Toast ref={toast} />
-            <ConfirmDialog />
+            <div className="grid">
+                <Toast ref={toast} />
+                <ConfirmDialog />
 
-            <div className="col-12">
-                <div className="card">
-                    <h5>Mi Perfil</h5>
-                    <p className="text-color-secondary">Administra tu información personal y configuración de cuenta</p>
+                <div className="col-12">
+                    <div className="card">
+                        <h5>Mi Perfil</h5>
+                        <p className="text-color-secondary">Administra tu información personal y configuración de cuenta</p>
+                    </div>
+                </div>
+
+                {/* Avatar y datos básicos */}
+                <div className="col-12 lg:col-4">
+                    <Card title="Foto de perfil">
+                        <div className="flex flex-column align-items-center gap-3">
+                            <Avatar
+                                image={avatarUrl || undefined}
+                                icon={!avatarUrl ? 'pi pi-user' : undefined}
+                                size="xlarge"
+                                shape="circle"
+                                style={{ width: '150px', height: '150px', fontSize: '4rem' }}
+                            />
+
+                            <FileUpload
+                                ref={fileUploadRef}
+                                mode="basic"
+                                name="avatar"
+                                accept="image/*"
+                                maxFileSize={5000000}
+                                chooseLabel="Cambiar foto"
+                                customUpload={false}
+                                auto={false}
+                                className="w-full"
+                                onSelect={async (e) => {
+                                    const file = e.files?.[0];
+                                    if (!file) return;
+                                    setSelectedFileName(file.name || 'avatar');
+                                    try {
+                                        const dataUrl = await readFileAsDataURL(file);
+                                        setImageSrc(dataUrl);
+                                        setCropModalVisible(true);
+                                        setCrop({ x: 0, y: 0 });
+                                        setZoom(1);
+                                        setCroppedAreaPixels(null);
+                                        setCropperReady(false);
+                                        setCropModalVisible(true);
+                                    } catch (err) {
+                                        console.error('Error leyendo archivo:', err);
+                                    }
+                                }}
+                            />
+
+                            {avatarUrl && (
+                                <Button
+                                    label="Eliminar foto"
+                                    icon="pi pi-trash"
+                                    severity="danger"
+                                    outlined
+                                    onClick={handleDeleteAvatar}
+                                    className="w-full"
+                                />
+                            )}
+
+                            <small className="text-color-secondary text-center">
+                                Formatos: JPG, PNG, GIF, WEBP<br />
+                                Tamaño máximo: 5MB
+                            </small>
+                        </div>
+                    </Card>
+                </div>
+
+                {/* Información del perfil */}
+                <div className="col-12 lg:col-8">
+                    <Card title="Información personal">
+                        <div className="flex flex-column gap-3">
+                            <div className="field">
+                                <label htmlFor="fullName">Nombre completo *</label>
+                                <InputText
+                                    id="fullName"
+                                    value={fullName}
+                                    onChange={(e) => setFullName(e.target.value)}
+                                    className="w-full"
+                                />
+                            </div>
+
+                            <div className="field">
+                                <label htmlFor="email">Email *</label>
+                                <InputText
+                                    id="email"
+                                    type="email"
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                    className="w-full"
+                                />
+                            </div>
+
+                            <div className="field">
+                                <label>Rol</label>
+                                <InputText
+                                    value={profile?.role === 'THERAPIST' ? 'Terapeuta' : 'Estudiante'}
+                                    disabled
+                                    className="w-full"
+                                />
+                            </div>
+
+                            <div className="flex justify-content-end gap-2">
+                                <Button
+                                    label="Cancelar"
+                                    icon="pi pi-times"
+                                    outlined
+                                    onClick={() => {
+                                        setFullName(profile?.full_name || '');
+                                        setEmail(profile?.email || '');
+                                    }}
+                                />
+                                <Button
+                                    label="Guardar cambios"
+                                    icon="pi pi-check"
+                                    loading={saving}
+                                    disabled={!hasProfileChanges}
+                                    onClick={handleUpdateProfile}
+                                />
+                            </div>
+                        </div>
+                    </Card>
+
+                    <Divider />
+
+                    {/* Configurar/Cambiar contraseña */}
+                    <Card title={profile?.has_password ? "Cambiar contraseña" : "Configurar contraseña"}>
+                        {!showPasswordSection ? (
+                            <div className="text-center py-3">
+                                <Button
+                                    label={profile?.has_password ? "Cambiar mi contraseña" : "Configurar contraseña"}
+                                    icon="pi pi-lock"
+                                    outlined
+                                    onClick={() => setShowPasswordSection(true)}
+                                />
+                            </div>
+                        ) : (
+                            <>
+                                {profile?.role && (
+                                    <div className="flex flex-column gap-3">
+                                        {profile.has_password ? (
+                                            // Usuario CON contraseña - Mostrar formulario de cambio
+                                            <>
+                                                <small className="text-color-secondary mb-2">
+                                                    Para cambiar tu contraseña, ingresa tu contraseña actual y la nueva.
+                                                </small>
+
+                                                <div className="field">
+                                                    <label htmlFor="currentPassword">Contraseña actual *</label>
+                                                    <Password
+                                                        id="currentPassword"
+                                                        value={currentPassword}
+                                                        onChange={(e) => setCurrentPassword(e.target.value)}
+                                                        toggleMask
+                                                        feedback={false}
+                                                        className="w-full"
+                                                        inputClassName="w-full"
+                                                    />
+                                                </div>
+
+                                                <div className="field">
+                                                    <label htmlFor="newPassword">Nueva contraseña *</label>
+                                                    <Password
+                                                        id="newPassword"
+                                                        value={newPassword}
+                                                        onChange={(e) => setNewPassword(e.target.value)}
+                                                        toggleMask
+                                                        className="w-full"
+                                                        inputClassName="w-full"
+                                                    />
+                                                </div>
+
+                                                <div className="field">
+                                                    <label htmlFor="confirmPassword">Confirmar nueva contraseña *</label>
+                                                    <Password
+                                                        id="confirmPassword"
+                                                        value={confirmPassword}
+                                                        onChange={(e) => setConfirmPassword(e.target.value)}
+                                                        toggleMask
+                                                        feedback={false}
+                                                        className="w-full"
+                                                        inputClassName="w-full"
+                                                    />
+                                                </div>
+
+                                                <div className="flex justify-content-end gap-2">
+                                                    <Button
+                                                        label="Cancelar"
+                                                        icon="pi pi-times"
+                                                        outlined
+                                                        onClick={() => {
+                                                            setShowPasswordSection(false);
+                                                            setCurrentPassword('');
+                                                            setNewPassword('');
+                                                            setConfirmPassword('');
+                                                        }}
+                                                    />
+                                                    <Button
+                                                        label="Cambiar contraseña"
+                                                        icon="pi pi-lock"
+                                                        loading={changingPassword}
+                                                        disabled={!hasPasswordInput}
+                                                        onClick={handleChangePassword}
+                                                    />
+                                                </div>
+                                            </>
+                                        ) : (
+                                            // Usuario SIN contraseña - Mostrar formulario de configuración
+                                            <>
+                                                <div className="mb-3 p-3 border-round" style={{ backgroundColor: 'var(--surface-100)' }}>
+                                                    <div className="flex align-items-center gap-2 mb-2">
+                                                        <i className="pi pi-info-circle text-primary"></i>
+                                                        <strong>Configura una contraseña</strong>
+                                                    </div>
+                                                    <small className="text-color-secondary">
+                                                        Actualmente accedes con Google. Configura una contraseña para poder
+                                                        iniciar sesión también con tu email y contraseña.
+                                                    </small>
+                                                </div>
+
+                                                <div className="field">
+                                                    <label htmlFor="newPassword">Nueva contraseña *</label>
+                                                    <Password
+                                                        id="newPassword"
+                                                        value={newPassword}
+                                                        onChange={(e) => setNewPassword(e.target.value)}
+                                                        toggleMask
+                                                        className="w-full"
+                                                        inputClassName="w-full"
+                                                        placeholder="Mínimo 6 caracteres"
+                                                    />
+                                                </div>
+
+                                                <div className="field">
+                                                    <label htmlFor="confirmPassword">Confirmar contraseña *</label>
+                                                    <Password
+                                                        id="confirmPassword"
+                                                        value={confirmPassword}
+                                                        onChange={(e) => setConfirmPassword(e.target.value)}
+                                                        toggleMask
+                                                        feedback={false}
+                                                        className="w-full"
+                                                        inputClassName="w-full"
+                                                        placeholder="Repite la contraseña"
+                                                    />
+                                                </div>
+
+                                                <div className="flex justify-content-end gap-2">
+                                                    <Button
+                                                        label="Cancelar"
+                                                        icon="pi pi-times"
+                                                        outlined
+                                                        onClick={() => {
+                                                            setShowPasswordSection(false);
+                                                            setNewPassword('');
+                                                            setConfirmPassword('');
+                                                        }}
+                                                    />
+                                                    <Button
+                                                        label="Establecer contraseña"
+                                                        icon="pi pi-lock"
+                                                        loading={changingPassword}
+                                                        disabled={!hasPasswordInput}
+                                                        onClick={handleChangePassword}
+                                                    />
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                )}
+                            </>
+                        )}
+                    </Card>
                 </div>
             </div>
 
-            {/* Avatar y datos básicos */}
-            <div className="col-12 lg:col-4">
-                <Card title="Foto de perfil">
-                    <div className="flex flex-column align-items-center gap-3">
-                        <Avatar
-                            image={avatarUrl || undefined}
-                            icon={!avatarUrl ? 'pi pi-user' : undefined}
-                            size="xlarge"
-                            shape="circle"
-                            style={{ width: '150px', height: '150px', fontSize: '4rem' }}
-                        />
-                        
-                        <FileUpload
-                            ref={fileUploadRef}
-                            mode="basic"
-                            name="avatar"
-                            accept="image/*"
-                            maxFileSize={5000000}
-                            chooseLabel="Cambiar foto"
-                            customUpload={false}
-                            auto={false}
-                            className="w-full"
-                            onSelect={async (e) => {
-                                const file = e.files?.[0];
-                                if (!file) return;
-                                setSelectedFileName(file.name || 'avatar');
-                                try {
-                                    const dataUrl = await readFileAsDataURL(file);
-                                    setImageSrc(dataUrl);
-                                    setCropModalVisible(true);
-                                    setCrop({ x: 0, y: 0 });
-                                    setZoom(1);
-                                    setCroppedAreaPixels(null);
-                                } catch (err) {
-                                    console.error('Error leyendo archivo:', err);
-                                }
-                            }}
-                        />
-
-                        {avatarUrl && (
-                            <Button
-                                label="Eliminar foto"
-                                icon="pi pi-trash"
-                                severity="danger"
-                                outlined
-                                onClick={handleDeleteAvatar}
-                                className="w-full"
-                            />
-                        )}
-
-                        <small className="text-color-secondary text-center">
-                            Formatos: JPG, PNG, GIF, WEBP<br />
-                            Tamaño máximo: 5MB
-                        </small>
-                    </div>
-                </Card>
-            </div>
-
-            {/* Información del perfil */}
-            <div className="col-12 lg:col-8">
-                <Card title="Información personal">
-                    <div className="flex flex-column gap-3">
-                        <div className="field">
-                            <label htmlFor="fullName">Nombre completo *</label>
-                            <InputText
-                                id="fullName"
-                                value={fullName}
-                                onChange={(e) => setFullName(e.target.value)}
-                                className="w-full"
-                            />
-                        </div>
-
-                        <div className="field">
-                            <label htmlFor="email">Email *</label>
-                            <InputText
-                                id="email"
-                                type="email"
-                                value={email}
-                                onChange={(e) => setEmail(e.target.value)}
-                                className="w-full"
-                            />
-                        </div>
-
-                        <div className="field">
-                            <label>Rol</label>
-                            <InputText
-                                value={profile?.role === 'THERAPIST' ? 'Terapeuta' : 'Estudiante'}
-                                disabled
-                                className="w-full"
-                            />
-                        </div>
-
-                        <div className="flex justify-content-end gap-2">
-                            <Button
-                                label="Cancelar"
-                                icon="pi pi-times"
-                                outlined
-                                onClick={() => {
-                                    setFullName(profile?.full_name || '');
-                                    setEmail(profile?.email || '');
-                                }}
-                            />
-                            <Button
-                                label="Guardar cambios"
-                                icon="pi pi-check"
-                                loading={saving}
-                                disabled={!hasProfileChanges}
-                                onClick={handleUpdateProfile}
-                            />
-                        </div>
-                    </div>
-                </Card>
-
-                <Divider />
-
-                {/* Configurar/Cambiar contraseña */}
-                <Card title={profile?.has_password ? "Cambiar contraseña" : "Configurar contraseña"}>
-                    {!showPasswordSection ? (
-                        <div className="text-center py-3">
-                            <Button
-                                label={profile?.has_password ? "Cambiar mi contraseña" : "Configurar contraseña"}
-                                icon="pi pi-lock"
-                                outlined
-                                onClick={() => setShowPasswordSection(true)}
-                            />
-                        </div>
-                    ) : (
-                        <>
-                            {profile?.role && (
-                                <div className="flex flex-column gap-3">
-                                    {profile.has_password ? (
-                                        // Usuario CON contraseña - Mostrar formulario de cambio
-                                        <>
-                                            <small className="text-color-secondary mb-2">
-                                                Para cambiar tu contraseña, ingresa tu contraseña actual y la nueva.
-                                            </small>
-                                            
-                                            <div className="field">
-                                                <label htmlFor="currentPassword">Contraseña actual *</label>
-                                                <Password
-                                                    id="currentPassword"
-                                                    value={currentPassword}
-                                                    onChange={(e) => setCurrentPassword(e.target.value)}
-                                                    toggleMask
-                                                    feedback={false}
-                                                    className="w-full"
-                                                    inputClassName="w-full"
-                                                />
-                                            </div>
-
-                                            <div className="field">
-                                                <label htmlFor="newPassword">Nueva contraseña *</label>
-                                                <Password
-                                                    id="newPassword"
-                                                    value={newPassword}
-                                                    onChange={(e) => setNewPassword(e.target.value)}
-                                                    toggleMask
-                                                    className="w-full"
-                                                    inputClassName="w-full"
-                                                />
-                                            </div>
-
-                                            <div className="field">
-                                                <label htmlFor="confirmPassword">Confirmar nueva contraseña *</label>
-                                                <Password
-                                                    id="confirmPassword"
-                                                    value={confirmPassword}
-                                                    onChange={(e) => setConfirmPassword(e.target.value)}
-                                                    toggleMask
-                                                    feedback={false}
-                                                    className="w-full"
-                                                    inputClassName="w-full"
-                                                />
-                                            </div>
-
-                                            <div className="flex justify-content-end gap-2">
-                                                <Button
-                                                    label="Cancelar"
-                                                    icon="pi pi-times"
-                                                    outlined
-                                                    onClick={() => {
-                                                        setShowPasswordSection(false);
-                                                        setCurrentPassword('');
-                                                        setNewPassword('');
-                                                        setConfirmPassword('');
-                                                    }}
-                                                />
-                                                <Button
-                                                    label="Cambiar contraseña"
-                                                    icon="pi pi-lock"
-                                                    loading={changingPassword}
-                                                    disabled={!hasPasswordInput}
-                                                    onClick={handleChangePassword}
-                                                />
-                                            </div>
-                                        </>
-                                    ) : (
-                                        // Usuario SIN contraseña - Mostrar formulario de configuración
-                                        <>
-                                            <div className="mb-3 p-3 border-round" style={{ backgroundColor: 'var(--surface-100)' }}>
-                                                <div className="flex align-items-center gap-2 mb-2">
-                                                    <i className="pi pi-info-circle text-primary"></i>
-                                                    <strong>Configura una contraseña</strong>
-                                                </div>
-                                                <small className="text-color-secondary">
-                                                    Actualmente accedes con Google. Configura una contraseña para poder 
-                                                    iniciar sesión también con tu email y contraseña.
-                                                </small>
-                                            </div>
-
-                                            <div className="field">
-                                                <label htmlFor="newPassword">Nueva contraseña *</label>
-                                                <Password
-                                                    id="newPassword"
-                                                    value={newPassword}
-                                                    onChange={(e) => setNewPassword(e.target.value)}
-                                                    toggleMask
-                                                    className="w-full"
-                                                    inputClassName="w-full"
-                                                    placeholder="Mínimo 6 caracteres"
-                                                />
-                                            </div>
-
-                                            <div className="field">
-                                                <label htmlFor="confirmPassword">Confirmar contraseña *</label>
-                                                <Password
-                                                    id="confirmPassword"
-                                                    value={confirmPassword}
-                                                    onChange={(e) => setConfirmPassword(e.target.value)}
-                                                    toggleMask
-                                                    feedback={false}
-                                                    className="w-full"
-                                                    inputClassName="w-full"
-                                                    placeholder="Repite la contraseña"
-                                                />
-                                            </div>
-
-                                            <div className="flex justify-content-end gap-2">
-                                                <Button
-                                                    label="Cancelar"
-                                                    icon="pi pi-times"
-                                                    outlined
-                                                    onClick={() => {
-                                                        setShowPasswordSection(false);
-                                                        setNewPassword('');
-                                                        setConfirmPassword('');
-                                                    }}
-                                                />
-                                                <Button
-                                                    label="Establecer contraseña"
-                                                    icon="pi pi-lock"
-                                                    loading={changingPassword}
-                                                    disabled={!hasPasswordInput}
-                                                    onClick={handleChangePassword}
-                                                />
-                                            </div>
-                                        </>
-                                    )}
-                                </div>
-                            )}
-                        </>
-                    )}
-                </Card>
-            </div>
-        </div>
-
-        <Dialog
-            header="Ajusta tu foto"
-            visible={cropModalVisible}
-            style={{ width: '450px' }}
-            onHide={() => {
-                if (!uploadingAvatar) {
-                    setCropModalVisible(false);
-                    setImageSrc(null);
-                }
-            }}
-            footer={
-                <div className="flex justify-content-end gap-2">
-                    <Button
-                        label="Cancelar"
-                        icon="pi pi-times"
-                        outlined
-                        onClick={() => {
-                            if (uploadingAvatar) return;
-                            setCropModalVisible(false);
-                            setImageSrc(null);
-                            fileUploadRef.current?.clear();
-                        }}
-                    />
-                    <Button
-                        label={uploadingAvatar ? 'Guardando...' : 'Usar foto'}
-                        icon="pi pi-check"
-                        loading={uploadingAvatar}
-                        onClick={async () => {
-                            if (!imageSrc || !croppedAreaPixels || !token) return;
-                            try {
-                                setUploadingAvatar(true);
-                                const croppedBlob = await getCroppedImg(imageSrc, croppedAreaPixels);
-                                const finalFile = new File([croppedBlob], selectedFileName || 'avatar.jpg', {
-                                    type: 'image/jpeg',
-                                });
-
-                                const updated = await uploadAvatar(token, finalFile);
-                                setProfile(updated);
-
-                                const avatarData = await getMyAvatarUrl(token);
-                                if (avatarData.url) {
-                                    const url = avatarData.url.startsWith('http') ? avatarData.url : `${API_BASE}${avatarData.url}`;
-                                    setAvatarUrl(url + (url.includes('?') ? '&' : '?') + `t=${Date.now()}`);
-                                    window.localStorage.setItem('backend_user', JSON.stringify({ ...(updated as any), avatar_path: updated.avatar_path }));
-                                    window.dispatchEvent(
-                                        new CustomEvent('avatar-updated', {
-                                            detail: { avatarPath: updated.avatar_path, url },
-                                        })
-                                    );
-                                }
-
-                                toast.current?.show({
-                                    severity: 'success',
-                                    summary: 'Avatar actualizado',
-                                    detail: 'La foto de perfil se actualizó correctamente',
-                                    life: 3000,
-                                });
-                            } catch (err: any) {
-                                console.error('Error uploading avatar:', err);
-                                toast.current?.show({
-                                    severity: 'error',
-                                    summary: 'Error',
-                                    detail: err?.message || 'No se pudo subir el avatar',
-                                    life: 3000,
-                                });
-                            } finally {
-                                setUploadingAvatar(false);
+            <Dialog
+                header="Ajusta tu foto"
+                visible={cropModalVisible}
+                style={{ width: '450px' }}
+                onShow={() => {
+                    setTimeout(() => setCropperReady(true), 0);
+                }}
+                onHide={() => {
+                    if (!uploadingAvatar) {
+                        setCropModalVisible(false);
+                        setImageSrc(null);
+                        setCropperReady(false);
+                    }
+                }}
+                footer={
+                    <div className="flex justify-content-end gap-2">
+                        <Button
+                            label="Cancelar"
+                            icon="pi pi-times"
+                            outlined
+                            onClick={() => {
+                                if (uploadingAvatar) return;
                                 setCropModalVisible(false);
                                 setImageSrc(null);
                                 fileUploadRef.current?.clear();
-                            }
-                        }}
+                            }}
+                        />
+                        <Button
+                            label={uploadingAvatar ? 'Guardando...' : 'Usar foto'}
+                            icon="pi pi-check"
+                            loading={uploadingAvatar}
+                            onClick={async () => {
+                                if (!imageSrc || !croppedAreaPixels || !token) return;
+                                try {
+                                    setUploadingAvatar(true);
+                                    const croppedBlob = await getCroppedImg(imageSrc, croppedAreaPixels);
+                                    const finalFile = new File([croppedBlob], selectedFileName || 'avatar.jpg', {
+                                        type: 'image/jpeg',
+                                    });
+
+                                    const updated = await uploadAvatar(token, finalFile);
+                                    setProfile(updated);
+
+                                    const avatarData = await getMyAvatarUrl(token);
+                                    if (avatarData.url) {
+                                        const url = avatarData.url.startsWith('http') ? avatarData.url : `${API_BASE}${avatarData.url}`;
+                                        setAvatarUrl(url + (url.includes('?') ? '&' : '?') + `t=${Date.now()}`);
+                                        window.localStorage.setItem('backend_user', JSON.stringify({ ...(updated as any), avatar_path: updated.avatar_path }));
+                                        window.dispatchEvent(
+                                            new CustomEvent('avatar-updated', {
+                                                detail: { avatarPath: updated.avatar_path, url },
+                                            })
+                                        );
+                                    }
+
+                                    toast.current?.show({
+                                        severity: 'success',
+                                        summary: 'Avatar actualizado',
+                                        detail: 'La foto de perfil se actualizó correctamente',
+                                        life: 3000,
+                                    });
+                                } catch (err: any) {
+                                    console.error('Error uploading avatar:', err);
+                                    toast.current?.show({
+                                        severity: 'error',
+                                        summary: 'Error',
+                                        detail: err?.message || 'No se pudo subir el avatar',
+                                        life: 3000,
+                                    });
+                                } finally {
+                                    setUploadingAvatar(false);
+                                    setCropModalVisible(false);
+                                    setImageSrc(null);
+                                    fileUploadRef.current?.clear();
+                                }
+                            }}
+                        />
+                    </div>
+                }
+            >
+                {imageSrc && cropperReady ? (
+                    <div style={{ position: 'relative', width: '100%', height: 320 }}>
+                        <Cropper
+                            image={imageSrc}
+                            crop={crop}
+                            zoom={zoom}
+                            aspect={1}
+                            onCropChange={setCrop}
+                            onCropComplete={onCropComplete}
+                            onZoomChange={setZoom}
+                            cropShape="round"
+                            showGrid={false}
+                        />
+                    </div>
+                ) : (
+                    <div className="flex justify-content-center align-items-center" style={{ height: 320 }}>
+                        <ProgressSpinner />
+                    </div>
+                )}
+                <div className="flex align-items-center gap-3 mt-3">
+                    <span className="text-sm text-600">Zoom</span>
+                    <input
+                        type="range"
+                        min={1}
+                        max={3}
+                        step={0.1}
+                        value={zoom}
+                        onChange={(e) => setZoom(Number(e.target.value))}
+                        style={{ flex: 1 }}
                     />
                 </div>
-            }
-        >
-            {imageSrc ? (
-                <div style={{ position: 'relative', width: '100%', height: 320 }}>
-                    <Cropper
-                        image={imageSrc}
-                        crop={crop}
-                        zoom={zoom}
-                        aspect={1}
-                        onCropChange={setCrop}
-                        onCropComplete={onCropComplete}
-                        onZoomChange={setZoom}
-                        cropShape="round"
-                        showGrid={false}
-                    />
-                </div>
-            ) : (
-                <div className="flex justify-content-center align-items-center" style={{ height: 320 }}>
-                    <ProgressSpinner />
-                </div>
-            )}
-            <div className="flex align-items-center gap-3 mt-3">
-                <span className="text-sm text-600">Zoom</span>
-                <input
-                    type="range"
-                    min={1}
-                    max={3}
-                    step={0.1}
-                    value={zoom}
-                    onChange={(e) => setZoom(Number(e.target.value))}
-                    style={{ flex: 1 }}
-                />
-            </div>
-        </Dialog>
+            </Dialog>
         </>
     );
 }

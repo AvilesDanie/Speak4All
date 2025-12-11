@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 import logging
@@ -70,7 +70,23 @@ def request_join_course(
         models.CourseJoinRequest.student_id == current_user.id,
     ).first()
     if existing:
-        return existing
+        avatar_url = None
+        try:
+            if current_user.avatar_path:
+                avatar_url = storage.generate_signed_url(current_user.avatar_path)
+        except Exception:
+            avatar_url = None
+        return schemas.CourseJoinRequestOut(
+            id=existing.id,
+            course_id=existing.course_id,
+            student_id=existing.student_id,
+            status=existing.status,
+            created_at=existing.created_at,
+            student_full_name=current_user.full_name,
+            student_email=current_user.email,
+            student_avatar_path=current_user.avatar_path,
+            student_avatar_url=avatar_url,
+        )
 
     req = models.CourseJoinRequest(
         course_id=course.id,
@@ -79,7 +95,23 @@ def request_join_course(
     db.add(req)
     db.commit()
     db.refresh(req)
-    return req
+    avatar_url = None
+    try:
+        if current_user.avatar_path:
+            avatar_url = storage.generate_signed_url(current_user.avatar_path)
+    except Exception:
+        avatar_url = None
+    return schemas.CourseJoinRequestOut(
+        id=req.id,
+        course_id=req.course_id,
+        student_id=req.student_id,
+        status=req.status,
+        created_at=req.created_at,
+        student_full_name=current_user.full_name,
+        student_email=current_user.email,
+        student_avatar_path=current_user.avatar_path,
+        student_avatar_url=avatar_url,
+    )
 
 
 @router.get("/my", response_model=schemas.PaginatedResponse[schemas.CourseOut])
@@ -171,17 +203,75 @@ def get_course_owned_or_404(
 )
 def list_join_requests(
     course_id: int,
+    status: str | None = Query(
+        None,
+        description="Estado de la solicitud. Valores: PENDING,ACCEPTED,REJECTED,ALL. Por defecto: PENDING",
+    ),
+    from_date: datetime | None = Query(None, description="Fecha inicial (ISO 8601)"),
+    to_date: datetime | None = Query(None, description="Fecha final (ISO 8601)"),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
     course = get_course_owned_or_404(db, course_id, current_user)
 
-    reqs = db.query(models.CourseJoinRequest).filter(
-        models.CourseJoinRequest.course_id == course.id,
-        models.CourseJoinRequest.status == models.JoinRequestStatus.PENDING,
-    ).all()
+    # Determinar estados a filtrar
+    if status is None:
+        statuses: list[models.JoinRequestStatus] | None = [models.JoinRequestStatus.PENDING]
+    else:
+        normalized = status.upper()
+        if normalized == "ALL":
+            statuses = None  # sin filtro
+        else:
+            statuses = []
+            for part in normalized.split(","):
+                part = part.strip()
+                try:
+                    statuses.append(models.JoinRequestStatus(part))
+                except ValueError:
+                    continue
+            if not statuses:
+                statuses = [models.JoinRequestStatus.PENDING]
 
-    return reqs
+    query = (
+        db.query(models.CourseJoinRequest, models.User)
+        .join(models.User, models.User.id == models.CourseJoinRequest.student_id)
+        .filter(models.CourseJoinRequest.course_id == course.id)
+    )
+
+    if statuses:
+        query = query.filter(models.CourseJoinRequest.status.in_(statuses))
+    if from_date:
+        query = query.filter(models.CourseJoinRequest.created_at >= from_date)
+    if to_date:
+        query = query.filter(models.CourseJoinRequest.created_at <= to_date)
+
+    reqs = query.order_by(models.CourseJoinRequest.created_at.desc()).all()
+
+    out: list[schemas.CourseJoinRequestOut] = []
+    for req, student in reqs:
+        # construir URL firmada si hay avatar_path
+        avatar_url = None
+        try:
+            if student.avatar_path:
+                avatar_url = storage.generate_signed_url(student.avatar_path)
+        except Exception:
+            avatar_url = None
+
+        out.append(
+            schemas.CourseJoinRequestOut(
+                id=req.id,
+                course_id=req.course_id,
+                student_id=req.student_id,
+                status=req.status,
+                created_at=req.created_at,
+                student_full_name=student.full_name,
+                student_email=student.email,
+                student_avatar_path=student.avatar_path,
+                student_avatar_url=avatar_url,
+            )
+        )
+
+    return out
 
 
 # ==== 2) ACEPTAR / RECHAZAR UNA SOLICITUD ====
@@ -210,38 +300,63 @@ def decide_join_request(
             detail="Solicitud no encontrada",
         )
 
-    if req.status != models.JoinRequestStatus.PENDING:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="La solicitud ya fue procesada",
-        )
+    now = datetime.now(timezone.utc)
 
-    # actualizar estado
-    req.status = (
-        models.JoinRequestStatus.ACCEPTED
-        if decision.accept
-        else models.JoinRequestStatus.REJECTED
-    )
-    req.decided_at = datetime.now(timezone.utc)
-
-    # si se acepta, creamos CourseStudent (si no existe ya)
     if decision.accept:
-        existing = db.query(models.CourseStudent).filter(
-            models.CourseStudent.course_id == course.id,
-            models.CourseStudent.student_id == req.student_id,
-            models.CourseStudent.deleted_at.is_(None),
-        ).first()
+        # Permitir aceptar pendientes o rechazadas
+        if req.status == models.JoinRequestStatus.ACCEPTED:
+            # ya aceptada: devolver tal cual
+            pass
+        else:
+            req.status = models.JoinRequestStatus.ACCEPTED
+            req.decided_at = now
 
-        if not existing:
-            cs = models.CourseStudent(
-                course_id=course.id,
-                student_id=req.student_id,
+            # si se acepta, creamos CourseStudent (si no existe ya)
+            existing = db.query(models.CourseStudent).filter(
+                models.CourseStudent.course_id == course.id,
+                models.CourseStudent.student_id == req.student_id,
+                models.CourseStudent.deleted_at.is_(None),
+            ).first()
+
+            if not existing:
+                cs = models.CourseStudent(
+                    course_id=course.id,
+                    student_id=req.student_id,
+                )
+                db.add(cs)
+    else:
+        # Rechazar solo si no estaba aceptada
+        if req.status == models.JoinRequestStatus.ACCEPTED:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La solicitud ya fue aceptada",
             )
-            db.add(cs)
+        if req.status != models.JoinRequestStatus.REJECTED:
+            req.status = models.JoinRequestStatus.REJECTED
+            req.decided_at = now
 
     db.commit()
     db.refresh(req)
-    return req
+
+    student = db.query(models.User).filter(models.User.id == req.student_id).first()
+    avatar_url = None
+    try:
+        if student and student.avatar_path:
+            avatar_url = storage.generate_signed_url(student.avatar_path)
+    except Exception:
+        avatar_url = None
+
+    return schemas.CourseJoinRequestOut(
+        id=req.id,
+        course_id=req.course_id,
+        student_id=req.student_id,
+        status=req.status,
+        created_at=req.created_at,
+        student_full_name=student.full_name if student else None,
+        student_email=student.email if student else None,
+        student_avatar_path=student.avatar_path if student else None,
+        student_avatar_url=avatar_url,
+    )
 
 
 # ==== 3) LISTAR ESTUDIANTES + PROGRESO EN UN CURSO ====

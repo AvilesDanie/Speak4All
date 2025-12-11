@@ -1,23 +1,33 @@
-version: '3.9'
+version: "3.9"
 
 services:
-  db:
-    image: postgres:16
-    container_name: speak4all_db
-    restart: always
+  api:
+    build: .
+    container_name: speak4all_api
+    # Aquí puedes usar tanto variables directas como ${VAR} que vienen del .env
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: taco
-      POSTGRES_DB: speak4all
-    ports:
-      - "5432:5432"
-    volumes:
-      - speak4all_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ALGORITHM: ${JWT_ALGORITHM}
 
-volumes:
-  speak4all_data:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL: ${OPENAI_MODEL}
+      OPENAI_TTS_MODEL: ${OPENAI_TTS_MODEL}
+      TTS_VOICE_NAME: ${TTS_VOICE_NAME}
+
+      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS}
+      GCP_BUCKET_NAME: ${GCP_BUCKET_NAME}
+
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+
+    ports:
+      - "8000:8000"
+
+    volumes:
+      # Carpeta media para archivos subidos
+      - ./media:/code/media
+      # Clave de GCP: el archivo local gcp-key.json se monta dentro del contenedor
+      - ./gcp-key.json:/code/gcp-key.json:ro
+
+    restart: unless-stopped

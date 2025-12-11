@@ -1,3 +1,5 @@
+"use client";
+
 import React, { useContext, useEffect, useState } from 'react';
 import { Tooltip } from 'primereact/tooltip';
 import { LayoutContext } from './context/layoutcontext';
@@ -110,8 +112,53 @@ const AppMenuProfile = () => {
             setUser((prev) => (prev ? { ...prev, avatar_path: detail.avatarPath ?? null } : prev));
         };
 
+        const onProfileUpdated = (e: any) => {
+            const detail = e?.detail || {};
+
+            // Refrescar estado local
+            setUser((prev) => {
+                if (prev) {
+                    const next = {
+                        ...prev,
+                        full_name: detail.fullName ?? prev.full_name,
+                        email: detail.email ?? prev.email,
+                    };
+                    try {
+                        window.localStorage.setItem('backend_user', JSON.stringify(next));
+                    } catch (err) {
+                        console.error('Error syncing user cache after profile update:', err);
+                    }
+                    return next;
+                }
+
+                // Si no hay usuario en memoria, rehidratar desde localStorage y aplicar el cambio
+                try {
+                    const cachedRaw = window.localStorage.getItem('backend_user');
+                    const cached = cachedRaw ? JSON.parse(cachedRaw) : {};
+                    const next = {
+                        ...cached,
+                        full_name: detail.fullName ?? cached.full_name ?? 'Usuario',
+                        email: detail.email ?? cached.email ?? '',
+                    };
+                    window.localStorage.setItem('backend_user', JSON.stringify(next));
+                    return next as UserProfile;
+                } catch (err) {
+                    console.error('Error loading cached user after profile update:', err);
+                    return {
+                        full_name: detail.fullName ?? 'Usuario',
+                        email: detail.email ?? '',
+                        role: 'STUDENT',
+                    } as UserProfile;
+                }
+            });
+        };
+
         window.addEventListener('avatar-updated', onAvatarUpdated);
-        return () => window.removeEventListener('avatar-updated', onAvatarUpdated);
+        window.addEventListener('profile-updated', onProfileUpdated);
+        return () => {
+            window.removeEventListener('avatar-updated', onAvatarUpdated);
+            window.removeEventListener('profile-updated', onProfileUpdated);
+        };
     }, []);
 
     const tooltipValue = (tooltipText: string) => {

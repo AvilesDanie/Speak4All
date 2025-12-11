@@ -7,8 +7,11 @@ interface LandingLayoutProps {
 }
 
 export const metadata: Metadata = {
-    title: 'PrimeReact Avalon',
-    description: 'The ultimate collection of design-agnostic, flexible and accessible React UI Components.'
+    title: 'Speak4All',
+    description: 'Dashboard de Speak4All',
+    icons: {
+        icon: '/icon-message.svg'
+    }
 };
 
 export default function LandingLayout({ children }: LandingLayoutProps) {

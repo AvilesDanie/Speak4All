@@ -8,10 +8,11 @@ from google.cloud import storage
 from app.config import settings
 
 # Aseguramos que la lib de Google sepa dónde están las credenciales
-os.environ.setdefault(
-    "GOOGLE_APPLICATION_CREDENTIALS",
-    settings.google_application_credentials,
-)
+if settings.google_application_credentials:
+    os.environ.setdefault(
+        "GOOGLE_APPLICATION_CREDENTIALS",
+        settings.google_application_credentials,
+    )
 
 _storage_client = storage.Client()
 _bucket = _storage_client.bucket(settings.gcp_bucket_name)

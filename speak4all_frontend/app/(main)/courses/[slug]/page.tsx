@@ -109,6 +109,13 @@ const CoursePage: React.FC = () => {
 
     // Datos terapeuta
     const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
+    const [requestStatusFilter, setRequestStatusFilter] = useState<'PENDING' | 'ACCEPTED' | 'REJECTED' | 'ALL'>('PENDING');
+    const [requestFromDate, setRequestFromDate] = useState<Date | null>(null);
+    const [requestToDate, setRequestToDate] = useState<Date | null>(null);
+    const [showRequestsFilters, setShowRequestsFilters] = useState(true);
+    // Paginación - Solicitudes (terapeuta)
+    const [requestsPage, setRequestsPage] = useState(0);
+    const [requestsPageSize, setRequestsPageSize] = useState(10);
     const [students, setStudents] = useState<StudentInCourse[]>([]);
     const [progressList, setProgressList] = useState<StudentProgressSummary[]>([]);
     const [exercises, setExercises] = useState<CourseExercise[]>([]);
@@ -193,6 +200,26 @@ const CoursePage: React.FC = () => {
             }
         }, 500);
     }, []);
+
+    // ─────────────────────────────
+    // Solicitudes (fetch + filtros)
+    // ─────────────────────────────
+    const fetchRequests = useCallback(async () => {
+        if (!token || !course) return;
+        try {
+            setLoadingRequests(true);
+            const data = await getCourseJoinRequests(token, course.id, {
+                status: requestStatusFilter,
+                from_date: requestFromDate ? requestFromDate.toISOString() : undefined,
+                to_date: requestToDate ? requestToDate.toISOString() : undefined,
+            });
+            setJoinRequests(data);
+        } catch (err) {
+            console.error('Error obteniendo solicitudes:', err);
+        } finally {
+            setLoadingRequests(false);
+        }
+    }, [token, course, requestStatusFilter, requestFromDate, requestToDate]);
 
     // WebSocket connection for real-time updates
     const { addNotification, triggerRefresh } = useExerciseNotifications();
@@ -300,16 +327,13 @@ const CoursePage: React.FC = () => {
                 break;
 
             case 'join_request':
-                // Add new join request
+                // Recargar solicitudes con filtros actuales
                 if (message.data && roleRef.current === 'THERAPIST' && token && courseRef.current) {
-                    // Reload join requests instead of manually adding
-                    getCourseJoinRequests(token, courseRef.current.id)
-                        .then(setJoinRequests)
-                        .catch(console.error);
+                    fetchRequests();
                 }
                 break;
         }
-    }, [token, reloadProgressWithDebounce, addNotification, triggerRefresh]);
+    }, [token, reloadProgressWithDebounce, addNotification, triggerRefresh, fetchRequests]);
 
     const { isConnected } = useWebSocket({
         courseId: course?.id || null,
@@ -461,18 +485,6 @@ const CoursePage: React.FC = () => {
         };
 
         if (role === 'THERAPIST') {
-            const fetchRequests = async () => {
-                try {
-                    setLoadingRequests(true);
-                    const data = await getCourseJoinRequests(token, courseId);
-                    setJoinRequests(data);
-                } catch (err) {
-                    console.error('Error obteniendo solicitudes:', err);
-                } finally {
-                    setLoadingRequests(false);
-                }
-            };
-
             const fetchStudents = async () => {
                 try {
                     setLoadingStudents(true);
@@ -517,7 +529,7 @@ const CoursePage: React.FC = () => {
             fetchExercises();
             fetchStudentExercises();
         }
-    }, [course, token, role, studentId]);
+    }, [course, token, role, studentId, fetchRequests]);
 
     // ─────────────────────────────
     // Acciones terapeuta
@@ -526,7 +538,7 @@ const CoursePage: React.FC = () => {
         if (!token || !course) return;
         try {
             await decideJoinRequest(token, course.id, requestId, accept);
-            setJoinRequests((prev) => prev.filter((r) => r.id !== requestId));
+            await fetchRequests();
         } catch (err: any) {
             console.error('Error actualizando solicitud:', err);
             showError(err?.message || 'No se pudo actualizar la solicitud.');
@@ -566,45 +578,171 @@ const CoursePage: React.FC = () => {
         if (role !== 'THERAPIST') return null;
 
         if (loadingRequests) return <p>Cargando solicitudes...</p>;
-        if (!joinRequests.length)
-            return <p className="text-600">No hay solicitudes pendientes.</p>;
+
+        // Paginación cliente para solicitudes
+        const totalRequests = joinRequests.length;
+        const startIndex = requestsPage * requestsPageSize;
+        const endIndex = startIndex + requestsPageSize;
+        const paginatedRequests = joinRequests.slice(startIndex, endIndex);
+
+        const statusOptions = [
+            { label: 'Pendientes', value: 'PENDING' },
+            { label: 'Aceptadas', value: 'ACCEPTED' },
+            { label: 'Rechazadas', value: 'REJECTED' },
+            { label: 'Todas', value: 'ALL' },
+        ];
+
+        const statusLabel: Record<string, string> = {
+            PENDING: 'Pendiente',
+            ACCEPTED: 'Aceptada',
+            REJECTED: 'Rechazada',
+        };
+
+        const statusSeverity: Record<string, "success" | "warning" | "danger" | "info"> = {
+            PENDING: 'warning',
+            ACCEPTED: 'success',
+            REJECTED: 'danger',
+        };
 
         return (
-            <div className="grid">
-                {joinRequests.map((r) => (
-                    <div key={r.id} className="col-12 md:col-6">
-                        <div className="card flex flex-column gap-2">
-                            <div className="flex justify-content-between align-items-center">
-                                <div>
-                                    <h4 className="m-0 text-base font-semibold">
-                                        Solicitud #{r.id}
-                                    </h4>
-                                    <p className="m-0 text-600 text-sm">
-                                        Alumno ID: {r.student_id}
-                                    </p>
-                                </div>
-                                <span className="text-700 text-sm">
-                                    {new Date(r.created_at).toLocaleString()}
-                                </span>
-                            </div>
-                            <div className="flex justify-content-end gap-2 mt-2">
-                                <Button
-                                    label="Rechazar"
-                                    icon="pi pi-times"
-                                    className="p-button-text p-button-danger"
-                                    onClick={() => updateJoinRequest(r.id, false)}
-                                />
-                                <Button
-                                    label="Aceptar"
-                                    icon="pi pi-check"
-                                    className="p-button-success"
-                                    onClick={() => updateJoinRequest(r.id, true)}
-                                />
-                            </div>
+            <>
+                {/* Botón toggle filtros */}
+                <div className="flex justify-content-end mb-2">
+                    <Button
+                        label={showRequestsFilters ? 'Ocultar filtros' : 'Mostrar filtros'}
+                        icon={showRequestsFilters ? 'pi pi-eye-slash' : 'pi pi-filter'}
+                        className="p-button-text p-button-sm"
+                        onClick={() => setShowRequestsFilters(!showRequestsFilters)}
+                    />
+                </div>
+
+                {showRequestsFilters && (
+                <div className="card mb-3">
+                    <div className="flex flex-wrap gap-3 align-items-end">
+                        <div className="flex flex-column gap-2" style={{ minWidth: 200 }}>
+                            <label className="text-sm text-600">Estado</label>
+                            <Dropdown
+                                value={requestStatusFilter}
+                                options={statusOptions}
+                                optionLabel="label"
+                                optionValue="value"
+                                onChange={(e) => setRequestStatusFilter(e.value)}
+                                className="w-full"
+                            />
+                        </div>
+                        <div className="flex flex-column gap-2" style={{ minWidth: 200 }}>
+                            <label className="text-sm text-600">Desde</label>
+                            <Calendar
+                                value={requestFromDate}
+                                onChange={(e) => setRequestFromDate(e.value as Date | null)}
+                                dateFormat="dd/mm/yy"
+                                showIcon
+                                className="w-full"
+                            />
+                        </div>
+                        <div className="flex flex-column gap-2" style={{ minWidth: 200 }}>
+                            <label className="text-sm text-600">Hasta</label>
+                            <Calendar
+                                value={requestToDate}
+                                onChange={(e) => setRequestToDate(e.value as Date | null)}
+                                dateFormat="dd/mm/yy"
+                                showIcon
+                                className="w-full"
+                            />
+                        </div>
+                        <div className="flex gap-2">
+                            
+                            <Button
+                                label="Limpiar"
+                                icon="pi pi-filter-slash"
+                                className="p-button-text"
+                                onClick={() => {
+                                    setRequestStatusFilter('PENDING');
+                                    setRequestFromDate(null);
+                                    setRequestToDate(null);
+                                }}
+                                disabled={
+                                    requestStatusFilter === 'PENDING' && !requestFromDate && !requestToDate
+                                }
+                            />
                         </div>
                     </div>
-                ))}
-            </div>
+                </div>
+                )}
+
+                {!joinRequests.length && (
+                    <p className="text-600">No hay solicitudes para los filtros seleccionados.</p>
+                )}
+
+                <div className="grid">
+                    {paginatedRequests.map((r) => (
+                        <div key={r.id} className="col-12 md:col-6">
+                            <div className="card flex flex-column gap-2">
+                                <div className="flex justify-content-between align-items-start gap-3">
+                                    <div className="flex align-items-center gap-3">
+                                        <Avatar
+                                            image={(r.student_avatar_url || buildAvatarUrl(r.student_avatar_path)) || undefined}
+                                            label={!(r.student_avatar_url || buildAvatarUrl(r.student_avatar_path)) ? (r.student_full_name || 'Alumno').charAt(0).toUpperCase() : undefined}
+                                            shape="circle"
+                                            size="large"
+                                        />
+                                        <div className="flex flex-column gap-1">
+                                            <div className="flex align-items-center gap-2 flex-wrap">
+                                                <h4 className="m-0 text-base font-semibold">
+                                                    {r.student_full_name || `Alumno #${r.student_id}`}
+                                                </h4>
+                                                <Tag value={`Solicitud #${r.id}`} severity="info" />
+                                                <Tag
+                                                    value={statusLabel[r.status] || r.status}
+                                                    severity={statusSeverity[r.status] || 'info'}
+                                                />
+                                            </div>
+                                            <p className="m-0 text-600 text-sm">
+                                                {r.student_email || `ID: ${r.student_id}`}
+                                            </p>
+                                            <p className="m-0 text-500 text-xs">
+                                                Enviada: {new Date(r.created_at).toLocaleString()}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="flex justify-content-end gap-2 mt-2 flex-wrap">
+                                    <Button
+                                        label="Rechazar"
+                                        icon="pi pi-times"
+                                        className="p-button-text p-button-danger"
+                                        onClick={() => updateJoinRequest(r.id, false)}
+                                        disabled={r.status === 'REJECTED' || r.status === 'ACCEPTED'}
+                                    />
+                                    <Button
+                                        label={r.status === 'REJECTED' ? 'Aceptar (rehabilitar)' : 'Aceptar'}
+                                        icon="pi pi-check"
+                                        className="p-button-success"
+                                        onClick={() => updateJoinRequest(r.id, true)}
+                                        disabled={r.status === 'ACCEPTED'}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Paginación */}
+                {totalRequests > requestsPageSize && (
+                    <div className="card mt-3">
+                        <Paginator
+                            first={startIndex}
+                            rows={requestsPageSize}
+                            totalRecords={totalRequests}
+                            onPageChange={(e: PaginatorPageChangeEvent) => {
+                                const nextPage = Math.floor((e.first ?? 0) / (e.rows ?? requestsPageSize));
+                                setRequestsPage(nextPage);
+                                setRequestsPageSize(e.rows ?? requestsPageSize);
+                            }}
+                        />
+                    </div>
+                )}
+            </>
         );
     };
 
@@ -1594,51 +1732,32 @@ const CoursePage: React.FC = () => {
                 ) : (
                     <div className="grid">
                         {paginatedExercises.map((ex) => {
-                            const ce = exercises.find(
-                                (c) => c.id === ex.course_exercise_id
-                            );
+                            const ce = exercises.find((c) => c.id === ex.course_exercise_id);
                             const textPreview = ce?.exercise?.text ?? '';
-
                             return (
-                                <div
-                                    key={ex.course_exercise_id}
-                                    className="col-12 md:col-6"
-                                >
+                                <div key={ex.course_exercise_id} className="col-12 md:col-6">
                                     <div className="card flex flex-column gap-2 h-full">
                                         <div className="flex justify-content-between align-items-start">
                                             <div>
-                                                <h4 className="m-0 text-base font-semibold">
-                                                    {ex.exercise_name}
-                                                </h4>
+                                                <h4 className="m-0 text-base font-semibold">{ex.exercise_name}</h4>
                                                 {ex.due_date && (
                                                     <p className="m-0 text-600 text-sm">
-                                                        Fecha límite:{' '}
-                                                        {new Date(
-                                                            ex.due_date
-                                                        ).toLocaleString()}
+                                                        Fecha límite: {new Date(ex.due_date).toLocaleString()}
                                                     </p>
                                                 )}
                                                 {ex.submitted_at && (
                                                     <p className="m-0 text-600 text-sm">
-                                                        Entregado:{' '}
-                                                        {new Date(
-                                                            ex.submitted_at
-                                                        ).toLocaleString()}
+                                                        Entregado: {new Date(ex.submitted_at).toLocaleString()}
                                                     </p>
                                                 )}
                                             </div>
                                             {statusTag(ex.status, ex.due_date)}
                                         </div>
-
                                         {textPreview && (
                                             <p className="m-0 text-sm text-700 line-height-3">
-                                                {textPreview.length > 140
-                                                    ? textPreview.slice(0, 140) +
-                                                    '…'
-                                                    : textPreview}
+                                                {textPreview.length > 140 ? textPreview.slice(0, 140) + '…' : textPreview}
                                             </p>
                                         )}
-
                                         <div className="flex justify-content-end mt-2">
                                             <Button
                                                 label="Ver detalle / entregar"
@@ -1646,16 +1765,12 @@ const CoursePage: React.FC = () => {
                                                 className="p-button-text"
                                                 onClick={() => {
                                                     if (!course) return;
-                                                    // Asegura que el slug se genera correctamente con el id de CourseExercise
                                                     let exerciseSlug = '';
                                                     if (typeof window !== 'undefined') {
                                                         exerciseSlug = window.btoa(`${course.id}:${ex.course_exercise_id}`);
-                                                        // Elimina el padding '=' de base64
                                                         exerciseSlug = exerciseSlug.replace(/=+$/, '');
                                                     }
-                                                    router.push(
-                                                        `/courses/${params.slug}/${exerciseSlug}`
-                                                    );
+                                                    router.push(`/courses/${params.slug}/${exerciseSlug}`);
                                                 }}
                                             />
                                         </div>
@@ -1663,6 +1778,8 @@ const CoursePage: React.FC = () => {
                                 </div>
                             );
                         })}
+
+                        {/* Paginación ejercicios del estudiante: ya está más abajo */}
                     </div>
                 )}
 

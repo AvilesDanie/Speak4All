@@ -792,7 +792,7 @@ const StudentProgressPage: React.FC = () => {
                 <div className="flex flex-column align-items-center gap-3 py-3">
                     <i className="pi pi-info-circle text-orange-500" style={{ fontSize: '3rem' }} />
                     <p className="text-center m-0">
-                        La entrega del ejercicio "{canceledExerciseName}" ha sido anulada. El modal de detalle se ha cerrado.
+                        La entrega del ejercicio &quot;{canceledExerciseName}&quot; ha sido anulada. El modal de detalle se ha cerrado.
                     </p>
                     <Button
                         label="Aceptar"

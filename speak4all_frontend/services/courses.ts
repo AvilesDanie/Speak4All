@@ -104,6 +104,10 @@ export interface JoinRequest {
   student_id: number;
   status: 'PENDING' | 'ACCEPTED' | 'REJECTED';
   created_at: string;
+  student_full_name?: string | null;
+  student_email?: string | null;
+  student_avatar_path?: string | null;
+  student_avatar_url?: string | null;
 }
 
 export interface StudentInCourse {
@@ -145,8 +149,21 @@ export interface StudentExerciseStatus {
   has_audio?: boolean;
 }
 
-export function getCourseJoinRequests(token: string, courseId: number) {
-  return fetchJSON<JoinRequest[]>(`/courses/${courseId}/requests`, { token });
+export type JoinRequestStatusFilter = 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'ALL';
+
+export function getCourseJoinRequests(
+  token: string,
+  courseId: number,
+  options?: { status?: JoinRequestStatusFilter; from_date?: string; to_date?: string }
+) {
+  const params = new URLSearchParams();
+  if (options?.status) params.append('status', options.status);
+  if (options?.from_date) params.append('from_date', options.from_date);
+  if (options?.to_date) params.append('to_date', options.to_date);
+
+  const qs = params.toString();
+  const url = `/courses/${courseId}/requests${qs ? `?${qs}` : ''}`;
+  return fetchJSON<JoinRequest[]>(url, { token });
 }
 
 export function decideJoinRequest(token: string, courseId: number, requestId: number, accept: boolean) {
