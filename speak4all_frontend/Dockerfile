@@ -76,16 +76,12 @@ ENV GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID
 ENV GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET
 
 # Copiamos lo necesario para correr la app
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
-COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/package-lock.json ./package-lock.json
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/next.config.js ./next.config.js
 
-# Puerto interno de Next
 EXPOSE 3000
 ENV PORT=3000
 
-# Importante en Cloud Run: usar PORT
-CMD ["sh", "-c", "npm run start -- -p ${PORT}"]
+# Cloud Run
+CMD ["sh", "-c", "node server.js -p ${PORT}"]

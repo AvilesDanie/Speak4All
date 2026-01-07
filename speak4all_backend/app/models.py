@@ -135,7 +135,7 @@ class CourseExercise(Base):
 
 class Submission(Base):
     """
-    Entrega del estudiante: puede ser solo 'realizado' o con audio.
+    Entrega del estudiante: requiere evidencia obligatoria (foto o video).
     """
     __tablename__ = "submissions"
 
@@ -143,7 +143,7 @@ class Submission(Base):
     student_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     course_exercise_id = Column(Integer, ForeignKey("course_exercises.id"), nullable=False)
     status = Column(Enum(SubmissionStatus), default=SubmissionStatus.DONE, nullable=False)
-    audio_path = Column(String, nullable=True)
+    media_path = Column(String, nullable=False)  # Ruta de foto o video (obligatorio)
     created_at = Column(DateTime(timezone=True), default=utcnow)
     updated_at = Column(DateTime(timezone=True), default=utcnow)
 

@@ -11,20 +11,19 @@ import { InputNumber } from 'primereact/inputnumber';
 import { Calendar } from 'primereact/calendar';
 import { Dropdown } from 'primereact/dropdown';
 import { Paginator, PaginatorPageChangeEvent } from 'primereact/paginator';
-import AudioPlayer from '../../../../exercises/AudioPlayer';
 import { API_BASE } from '@/services/apiClient';
 import { BackendUser, Role } from '@/services/auth';
 import { StudentExerciseStatus, SubmissionStatus } from '@/services/courses';
 import { useWebSocket, WebSocketMessage } from '@/hooks/useWebSocket';
 
-const AUDIO_BASE_URL = API_BASE;
+// Evidencias de entrega (foto/video) se obtienen vía URL firmada del backend
 
 interface SubmissionOut {
     id: number;
     student_id: number;
     course_exercise_id: number;
     status: SubmissionStatus;
-    audio_path?: string | null;
+    media_path: string;
     created_at: string;
     updated_at: string;
 }
@@ -69,6 +68,7 @@ const StudentProgressPage: React.FC = () => {
     const [submissionDetail, setSubmissionDetail] = useState<SubmissionDetailOut | null>(null);
     const [loadingSubmissionDetail, setLoadingSubmissionDetail] = useState(false);
     const [submissionDetailError, setSubmissionDetailError] = useState<string | null>(null);
+    const [submissionMediaUrl, setSubmissionMediaUrl] = useState<string | null>(null);
     const [submissionCanceledModal, setSubmissionCanceledModal] = useState(false);
     const [canceledExerciseName, setCanceledExerciseName] = useState<string>('');
 
@@ -79,7 +79,7 @@ const StudentProgressPage: React.FC = () => {
     const [exerciseDueDateTo, setExerciseDueDateTo] = useState<Date | null>(null);
     const [exerciseSubmittedFrom, setExerciseSubmittedFrom] = useState<Date | null>(null);
     const [exerciseSubmittedTo, setExerciseSubmittedTo] = useState<Date | null>(null);
-    const [exerciseWithAudio, setExerciseWithAudio] = useState<'all' | 'with' | 'without'>('all');
+    const [exerciseWithMedia, setExerciseWithMedia] = useState<'all' | 'with' | 'without'>('all');
     const [exercisePage, setExercisePage] = useState(0);
     const [exercisePageSize, setExercisePageSize] = useState(10);
     const [showFilters, setShowFilters] = useState(true);
@@ -251,6 +251,7 @@ const StudentProgressPage: React.FC = () => {
             try {
                 setSubmissionDetailError(null);
                 setLoadingSubmissionDetail(true);
+                setSubmissionMediaUrl(null);
                 const res = await fetch(
                     `${API_BASE}/submissions/course-exercises/${selectedExercise.course_exercise_id}/students/${studentId}`,
                     { headers: { Authorization: `Bearer ${token}` } }
@@ -263,6 +264,24 @@ const StudentProgressPage: React.FC = () => {
                 }
                 const data: SubmissionDetailOut = await res.json();
                 setSubmissionDetail(data);
+
+                // Obtener URL firmada de la evidencia (foto/video)
+                if (data.submission.media_path && token && data.submission.id) {
+                    try {
+                        const mediaUrlRes = await fetch(
+                            `${API_BASE}/submissions/${data.submission.id}/media-url`,
+                            { headers: { Authorization: `Bearer ${token}` } }
+                        );
+                        if (mediaUrlRes.ok) {
+                            const mediaData = await mediaUrlRes.json();
+                            setSubmissionMediaUrl(mediaData.url);
+                        } else {
+                            setSubmissionDetailError('Error obteniendo evidencia de la entrega.');
+                        }
+                    } catch (err) {
+                        setSubmissionDetailError('Error obteniendo evidencia de la entrega.');
+                    }
+                }
             } catch (err) {
                 console.error('Error de red al obtener detalle de entrega:', err);
                 setSubmissionDetailError('Error de red al cargar la entrega.');
@@ -274,13 +293,6 @@ const StudentProgressPage: React.FC = () => {
         loadDetail();
     }, [submissionDetailVisible, selectedExercise, token, role, studentId]);
 
-    const getSubmissionAudioSrc = (sub?: SubmissionOut | null) => {
-        if (!sub?.audio_path) return null;
-        const normalized = sub.audio_path.replace(/\\/g, '/');
-        return sub.audio_path.startsWith('http')
-            ? sub.audio_path
-            : `${AUDIO_BASE_URL}/media/${normalized}`;
-    };
 
     const statusTag = (status: SubmissionStatus, dueDate?: string | null) => {
         const now = new Date();
@@ -517,17 +529,17 @@ const StudentProgressPage: React.FC = () => {
                                     />
                                 </div>
                                 <div className="col-12 md:col-2">
-                                    <label className="block text-sm font-medium mb-2">Con audio</label>
+                                            <label className="block text-sm font-medium mb-2">Con evidencia</label>
                                     <Dropdown
-                                        value={exerciseWithAudio}
+                                                value={exerciseWithMedia}
                                         onChange={(e) => {
-                                            setExerciseWithAudio(e.value);
+                                                    setExerciseWithMedia(e.value);
                                             setExercisePage(0);
                                         }}
                                         options={[
                                             { label: 'Todos', value: 'all' },
-                                            { label: 'Con audio', value: 'with' },
-                                            { label: 'Sin audio', value: 'without' }
+                                                    { label: 'Con evidencia', value: 'with' },
+                                                    { label: 'Sin evidencia', value: 'without' }
                                         ]}
                                         placeholder="Seleccionar"
                                         className="w-full"
@@ -545,7 +557,7 @@ const StudentProgressPage: React.FC = () => {
                                             setExerciseDueDateTo(null);
                                             setExerciseSubmittedFrom(null);
                                             setExerciseSubmittedTo(null);
-                                            setExerciseWithAudio('all');
+                                            setExerciseWithMedia('all');
                                             setExercisePage(0);
                                         }}
                                     />
@@ -600,11 +612,11 @@ const StudentProgressPage: React.FC = () => {
                                     }
                                 }
 
-                                // Filtro por con/sin audio
-                                if (exerciseWithAudio === 'with' && !ex.has_audio) {
+                                // Filtro por con/sin evidencia
+                                if (exerciseWithMedia === 'with' && !ex.has_media) {
                                     return false;
                                 }
-                                if (exerciseWithAudio === 'without' && ex.has_audio) {
+                                if (exerciseWithMedia === 'without' && ex.has_media) {
                                     return false;
                                 }
 
@@ -760,10 +772,33 @@ const StudentProgressPage: React.FC = () => {
                             </div>
                         </div>
 
-                        {submissionDetail.submission.audio_path && (
+                        {submissionDetail.submission.media_path && (
                             <div className="surface-50 border-round-lg p-3">
-                                <h4 className="text-base font-semibold mb-2">Audio de la entrega</h4>
-                                <AudioPlayer src={getSubmissionAudioSrc(submissionDetail.submission) || ''} />
+                                <h4 className="text-base font-semibold mb-2">Evidencia de la entrega</h4>
+                                {submissionMediaUrl ? (
+                                    <div className="flex justify-content-center">
+                                        {submissionDetail.submission.media_path.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
+                                            <img 
+                                                src={submissionMediaUrl} 
+                                                alt="Evidencia del estudiante"
+                                                style={{ maxWidth: '100%', maxHeight: '500px', borderRadius: '8px' }}
+                                            />
+                                        ) : (
+                                            <video 
+                                                src={submissionMediaUrl} 
+                                                controls
+                                                style={{ maxWidth: '100%', maxHeight: '500px', borderRadius: '8px' }}
+                                            >
+                                                Tu navegador no soporta la reproducción de video.
+                                            </video>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <div className="text-center p-3">
+                                        <i className="pi pi-spin pi-spinner" style={{ fontSize: '2rem' }} />
+                                        <p className="text-sm text-600 mt-2">Cargando evidencia...</p>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>

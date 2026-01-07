@@ -266,9 +266,9 @@ export default function Dashboard() {
                 className="p-5 mb-5 border-round-2xl"
                 style={{
                     background: role === 'THERAPIST'
-                        ? 'linear-gradient(135deg, #4f46e5 0%, #8b5cf6 100%)'
-                        : 'linear-gradient(135deg, #10b981 0%, #22c55e 100%)',
-                    color: 'white'
+                        ? 'linear-gradient(135deg, var(--primary-color) 0%, var(--purple-500) 100%)'
+                        : 'linear-gradient(135deg, var(--green-500) 0%, var(--green-400) 100%)',
+                    color: 'var(--primary-color-text)'
                 }}
             >
                 <div className="flex align-items-center justify-content-between flex-wrap gap-3">
@@ -283,7 +283,7 @@ export default function Dashboard() {
                         <div className="flex align-items-center gap-2 mt-2">
                             <span
                                 className="px-3 py-1 border-round-2xl text-sm font-semibold"
-                                style={{ background: 'rgba(255,255,255,0.2)' }}
+                                style={{ background: 'rgba(255,255,255,0.25)', backdropFilter: 'blur(10px)' }}
                             >
                                 {role === 'THERAPIST' ? '👨‍⚕️ Terapeuta' : '👤 Estudiante'}
                             </span>
@@ -303,17 +303,17 @@ export default function Dashboard() {
                             <div className="col-12">
                                 <Card className="shadow-2 border-round-xl">
                                     <div className="flex align-items-center justify-content-between mb-4">
-                                        <h3 className="m-0 font-bold text-900">
-                                            <i className="pi pi-user-plus mr-2" style={{ color: '#f59e0b' }} />
+                                        <h3 className="m-0 font-bold">
+                                            <i className="pi pi-user-plus mr-2" style={{ color: 'var(--orange-500)' }} />
                                             Solicitudes de ingreso
                                         </h3>
                                         <Tag value={`${joinRequests.length} pendientes`} severity={joinRequests.length > 0 ? 'warning' : 'success'} />
                                     </div>
                                     {joinRequests.length === 0 ? (
                                         <div className="text-center p-5">
-                                            <i className="pi pi-check-circle text-5xl text-400 mb-3 block" />
-                                            <p className="m-0 text-600">No hay solicitudes pendientes</p>
-                                            <p className="m-0 text-500 text-sm mt-1">Las nuevas solicitudes aparecerán aquí</p>
+                                            <i className="pi pi-check-circle text-5xl mb-3 block" style={{ color: 'var(--text-color-secondary)' }} />
+                                            <p className="m-0" style={{ color: 'var(--text-color-secondary)' }}>No hay solicitudes pendientes</p>
+                                            <p className="m-0 text-sm mt-1" style={{ color: 'var(--text-color-secondary)', opacity: 0.7 }}>Las nuevas solicitudes aparecerán aquí</p>
                                         </div>
                                     ) : (
                                         <div className="flex flex-column gap-3">
@@ -322,23 +322,23 @@ export default function Dashboard() {
                                                     key={request.id}
                                                     className="p-3 border-round-lg"
                                                     style={{ 
-                                                        border: '1px solid #e5e7eb',
-                                                        background: '#fafafa'
+                                                        border: '1px solid var(--surface-border)',
+                                                        background: 'var(--surface-50)'
                                                     }}
                                                 >
                                                     <div className="flex align-items-start justify-content-between gap-3">
                                                         <div className="flex-1">
                                                             <div className="flex align-items-center gap-2 mb-2">
-                                                                <i className="pi pi-user text-sm" style={{ color: '#6366f1' }} />
-                                                                <span className="font-semibold text-900">Nuevo estudiante</span>
+                                                                <i className="pi pi-user text-sm" style={{ color: 'var(--primary-color)' }} />
+                                                                <span className="font-semibold">Nuevo estudiante</span>
                                                             </div>
                                                             <div className="flex align-items-center gap-2 mb-1">
-                                                                <i className="pi pi-book text-xs text-600" />
-                                                                <span className="text-sm text-600">{request.courseName}</span>
+                                                                <i className="pi pi-book text-xs" style={{ color: 'var(--text-color-secondary)' }} />
+                                                                <span className="text-sm" style={{ color: 'var(--text-color-secondary)' }}>{request.courseName}</span>
                                                             </div>
                                                             <div className="flex align-items-center gap-2">
-                                                                <i className="pi pi-calendar text-xs text-500" />
-                                                                <span className="text-xs text-500">
+                                                                <i className="pi pi-calendar text-xs" style={{ color: 'var(--text-color-secondary)' }} />
+                                                                <span className="text-xs" style={{ color: 'var(--text-color-secondary)' }}>
                                                                     {new Date(request.created_at).toLocaleDateString('es-ES', {
                                                                         year: 'numeric',
                                                                         month: 'short',
@@ -395,7 +395,7 @@ export default function Dashboard() {
                     <div className="grid">
                         {overview.map((item) => (
                             <div key={item.title} className={`col-12 md:col-6 lg:col-${isTherapist ? '4' : '3'}`}>
-                                <Card className="shadow-2 border-round-xl h-full" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)' }}>
+                                <Card className="shadow-2 border-round-xl h-full" style={{ background: 'var(--surface-card)' }}>
                                     <div className="flex align-items-start justify-content-between mb-3">
                                         <div 
                                             className="flex align-items-center justify-content-center border-round-circle" 
@@ -409,8 +409,8 @@ export default function Dashboard() {
                                         </div>
                                         <Badge value={item.value} style={{ background: item.color, fontSize: '0.875rem' }} />
                                     </div>
-                                    <h3 className="text-900 font-semibold mb-2" style={{ fontSize: '0.875rem' }}>{item.title}</h3>
-                                    <p className="text-600 m-0" style={{ fontSize: '0.75rem' }}>{item.delta}</p>
+                                    <h3 className="font-semibold mb-2" style={{ fontSize: '0.875rem', color: 'var(--text-color)' }}>{item.title}</h3>
+                                    <p className="m-0" style={{ fontSize: '0.75rem', color: 'var(--text-color-secondary)' }}>{item.delta}</p>
                                 </Card>
                             </div>
                         ))}
@@ -424,23 +424,20 @@ export default function Dashboard() {
                             <div className="col-12">
                                 <Card className="shadow-2 border-round-xl">
                                     <div className="flex align-items-center justify-content-between mb-4">
-                                        <h3 className="m-0 font-bold text-900">
-                                            <i className="pi pi-users mr-2" style={{ color: '#6366f1' }} />
+                                        <h3 className="m-0 font-bold">
+                                            <i className="pi pi-users mr-2" style={{ color: 'var(--primary-color)' }} />
                                             Estudiantes y progreso por curso
                                         </h3>
                                         <Tag value={`${studentsData.length} estudiantes`} severity="success" icon="pi pi-check-circle" />
                                     </div>
                                     {studentsData.length === 0 ? (
-                                        <p className="m-0 text-600 text-center p-4">No hay estudiantes para mostrar</p>
+                                        <p className="m-0 text-center p-4" style={{ color: 'var(--text-color-secondary)' }}>No hay estudiantes para mostrar</p>
                                     ) : (
                                         <DataTable 
                                             value={studentsData} 
                                             paginator 
                                             rows={10}
                                             className="p-datatable-sm"
-                                            rowClassName={(data) => {
-                                                return data.progress > 70 ? 'bg-green-50' : data.progress > 40 ? 'bg-yellow-50' : 'bg-red-50';
-                                            }}
                                         >
                                             <Column field="studentName" header="Estudiante" sortable />
                                             <Column field="courseName" header="Curso" sortable body={(rowData) => (
@@ -476,15 +473,15 @@ export default function Dashboard() {
                                 <div className="col-12">
                                     <Card className="shadow-2 border-round-xl">
                                         <div className="flex align-items-center justify-content-between mb-4">
-                                            <h3 className="m-0 font-bold text-900">
-                                                <i className="pi pi-chart-bar mr-2" style={{ color: '#6366f1' }} />
+                                            <h3 className="m-0 font-bold">
+                                                <i className="pi pi-chart-bar mr-2" style={{ color: 'var(--primary-color)' }} />
                                                 Mi progreso en cursos
                                             </h3>
                                             <Tag value={`${progressBars.length} cursos`} severity="success" icon="pi pi-check-circle" />
                                         </div>
                                         <div className="flex flex-column gap-4">
                                             {progressBars.length === 0 && (
-                                                <p className="m-0 text-600 text-center p-4">No hay cursos para mostrar</p>
+                                                <p className="m-0 text-center p-4" style={{ color: 'var(--text-color-secondary)' }}>No hay cursos para mostrar</p>
                                             )}
                                             {progressBars.map((bar) => (
                                                 <div 
@@ -493,7 +490,7 @@ export default function Dashboard() {
                                                     onClick={() => bar.courseId && router.push(`/courses/${bar.courseId}`)}
                                                 >
                                                     <div className="flex justify-content-between align-items-center mb-2">
-                                                        <span className="text-900 font-semibold" style={{ fontSize: '0.875rem' }}>{bar.label}</span>
+                                                        <span className="font-semibold" style={{ fontSize: '0.875rem', color: 'var(--text-color)' }}>{bar.label}</span>
                                                         <span className="font-bold" style={{ fontSize: '1.125rem', color: bar.value > 70 ? '#10b981' : bar.value > 40 ? '#f59e0b' : '#ef4444' }}>{bar.value}%</span>
                                                     </div>
                                                     <ProgressBar 
@@ -511,14 +508,14 @@ export default function Dashboard() {
                                 <div className="col-12">
                                     <Card className="shadow-2 border-round-xl">
                                         <div className="flex align-items-center justify-content-between mb-4">
-                                            <h3 className="m-0 font-bold text-900">
-                                                <i className="pi pi-list mr-2" style={{ color: '#10b981' }} />
+                                            <h3 className="m-0 font-bold">
+                                                <i className="pi pi-list mr-2" style={{ color: 'var(--green-500)' }} />
                                                 Cursos y pendientes
                                             </h3>
                                             <Tag value={`${studentCourses.length} cursos`} severity="info" />
                                         </div>
                                         {studentCourses.length === 0 ? (
-                                            <p className="m-0 text-600 text-center p-4">No hay cursos para mostrar</p>
+                                            <p className="m-0 text-center p-4" style={{ color: 'var(--text-color-secondary)' }}>No hay cursos para mostrar</p>
                                         ) : (
                                             <DataTable value={studentCourses} paginator rows={5} className="p-datatable-sm">
                                                 <Column field="name" header="Curso" sortable body={(rowData) => (
@@ -556,8 +553,8 @@ export default function Dashboard() {
                         <div className="col-12">
                             <Card className="shadow-2 border-round-xl">
                                 <div className="flex align-items-center justify-content-between mb-4">
-                                    <h3 className="m-0 font-bold text-900">
-                                        <i className="pi pi-clock mr-2" style={{ color: '#8b5cf6' }} />
+                                    <h3 className="m-0 font-bold">
+                                        <i className="pi pi-clock mr-2" style={{ color: 'var(--purple-500)' }} />
                                         Actividad reciente
                                     </h3>
                                     <Tag value={`${timeline.length} eventos`} severity="info" />
@@ -565,21 +562,21 @@ export default function Dashboard() {
                                 <div className="flex flex-column gap-3">
                                     {timeline.length === 0 && (
                                         <div className="text-center p-5">
-                                            <i className="pi pi-inbox text-5xl text-400 mb-3 block" />
-                                            <p className="m-0 text-600">Sin actividad reciente</p>
-                                            <p className="m-0 text-500 text-sm mt-1">Las notificaciones aparecerán aquí automáticamente</p>
+                                            <i className="pi pi-inbox text-5xl mb-3 block" style={{ color: 'var(--text-color-secondary)' }} />
+                                            <p className="m-0" style={{ color: 'var(--text-color-secondary)' }}>Sin actividad reciente</p>
+                                            <p className="m-0 text-sm mt-1" style={{ color: 'var(--text-color-secondary)', opacity: 0.7 }}>Las notificaciones aparecerán aquí automáticamente</p>
                                         </div>
                                     )}
                                     {timeline.map((item, idx) => (
                                         <div key={idx} className="flex align-items-start gap-3 p-3 border-round-lg hover:surface-100 transition-colors">
-                                            <div className="flex align-items-center justify-content-center border-round-circle" style={{ minWidth: '36px', height: '36px', background: '#e0e7ff' }}>
-                                                <i className="pi pi-bell text-indigo-600" />
+                                            <div className="flex align-items-center justify-content-center border-round-circle" style={{ minWidth: '36px', height: '36px', background: 'var(--primary-color)', opacity: 0.2 }}>
+                                                <i className="pi pi-bell" style={{ color: 'var(--primary-color)' }} />
                                             </div>
                                             <div className="flex-1">
-                                                <p className="m-0 font-semibold text-900">{item.label}</p>
-                                                <p className="m-0 text-sm text-600 mt-1">{item.detail}</p>
+                                                <p className="m-0 font-semibold" style={{ color: 'var(--text-color)' }}>{item.label}</p>
+                                                <p className="m-0 text-sm mt-1" style={{ color: 'var(--text-color-secondary)' }}>{item.detail}</p>
                                             </div>
-                                            <span className="text-xs text-500 white-space-nowrap">{item.time}</span>
+                                            <span className="text-xs white-space-nowrap" style={{ color: 'var(--text-color-secondary)' }}>{item.time}</span>
                                         </div>
                                     ))}
                                 </div>
@@ -593,8 +590,8 @@ export default function Dashboard() {
                     {isTherapist ? (
                         <Card className="shadow-2 border-round-xl h-full">
                             <div className="flex align-items-center justify-content-between mb-4">
-                                <h3 className="m-0 font-bold text-900">
-                                    <i className="pi pi-file-edit mr-2" style={{ color: '#8b5cf6' }} />
+                                <h3 className="m-0 font-bold">
+                                    <i className="pi pi-file-edit mr-2" style={{ color: 'var(--purple-500)' }} />
                                     Ejercicios recientes
                                 </h3>
                                 <Tag value={`${recentExercises.length}`} severity="info" />
@@ -602,8 +599,8 @@ export default function Dashboard() {
                             <div className="flex flex-column gap-3 mb-4">
                                 {recentExercises.length === 0 && (
                                     <div className="text-center p-4">
-                                        <i className="pi pi-inbox text-4xl text-400 mb-2 block" />
-                                        <p className="m-0 text-600 text-sm">No hay ejercicios recientes</p>
+                                        <i className="pi pi-inbox text-4xl mb-2 block" style={{ color: 'var(--text-color-secondary)' }} />
+                                        <p className="m-0 text-sm" style={{ color: 'var(--text-color-secondary)' }}>No hay ejercicios recientes</p>
                                     </div>
                                 )}
                                 {recentExercises.map((exercise, idx) => (
@@ -611,21 +608,21 @@ export default function Dashboard() {
                                         key={exercise.id || idx} 
                                         className="p-3 border-round-lg hover:surface-100 transition-colors"
                                         style={{ 
-                                            borderLeft: '4px solid #8b5cf6',
-                                            background: '#fafafa'
+                                            borderLeft: '4px solid var(--purple-500)',
+                                            background: 'var(--surface-50)'
                                         }}
                                     >
                                         <div className="flex align-items-start justify-content-between mb-2">
-                                            <span className="font-semibold text-900 text-sm">{exercise.title || 'Sin título'}</span>
+                                            <span className="font-semibold text-sm" style={{ color: 'var(--text-color)' }}>{exercise.exercise?.name || exercise.name || exercise.title || 'Sin título'}</span>
                                         </div>
                                         <div className="flex align-items-center gap-2 mb-1">
-                                            <i className="pi pi-book text-xs text-600" />
-                                            <span className="text-xs text-600">{exercise.courseName}</span>
+                                            <i className="pi pi-book text-xs" style={{ color: 'var(--text-color-secondary)' }} />
+                                            <span className="text-xs" style={{ color: 'var(--text-color-secondary)' }}>{exercise.courseName}</span>
                                         </div>
                                         {exercise.created_at && (
                                             <div className="flex align-items-center gap-2">
-                                                <i className="pi pi-calendar text-xs text-500" />
-                                                <span className="text-xs text-500">
+                                                <i className="pi pi-calendar text-xs" style={{ color: 'var(--text-color-secondary)' }} />
+                                                <span className="text-xs" style={{ color: 'var(--text-color-secondary)' }}>
                                                     {new Date(exercise.created_at).toLocaleDateString('es-ES')}
                                                 </span>
                                             </div>
@@ -644,8 +641,8 @@ export default function Dashboard() {
                     ) : (
                         <Card className="shadow-2 border-round-xl h-full">
                             <div className="flex align-items-center justify-content-between mb-4">
-                                <h3 className="m-0 font-bold text-900">
-                                    <i className="pi pi-bookmark mr-2" style={{ color: '#10b981' }} />
+                                <h3 className="m-0 font-bold">
+                                    <i className="pi pi-bookmark mr-2" style={{ color: 'var(--green-500)' }} />
                                     Mis cursos
                                 </h3>
                                 <Tag value="Aprendiendo" severity="success" />
@@ -653,8 +650,8 @@ export default function Dashboard() {
                             <div className="flex flex-column gap-3">
                                 {spotlight.length === 0 && (
                                     <div className="text-center p-4">
-                                        <i className="pi pi-book text-4xl text-400 mb-2 block" />
-                                        <p className="m-0 text-600 text-sm">No hay cursos disponibles</p>
+                                        <i className="pi pi-book text-4xl mb-2 block" style={{ color: 'var(--text-color-secondary)' }} />
+                                        <p className="m-0 text-sm" style={{ color: 'var(--text-color-secondary)' }}>No hay cursos disponibles</p>
                                     </div>
                                 )}
                                 {spotlight.map((course, idx) => (
@@ -663,13 +660,13 @@ export default function Dashboard() {
                                         className="p-3 border-round-lg cursor-pointer hover:surface-100 transition-colors"
                                         style={{ 
                                             borderLeft: `4px solid ${course.color}`,
-                                            background: '#fafafa'
+                                            background: 'var(--surface-50)'
                                         }}
                                         onClick={() => router.push(`/courses/${course.courseId}`)}
                                     >
                                         <div className="flex align-items-center justify-content-between mb-2">
-                                            <span className="font-semibold text-900">{course.name}</span>
-                                            <i className="pi pi-arrow-right text-600 text-sm" />
+                                            <span className="font-semibold" style={{ color: 'var(--text-color)' }}>{course.name}</span>
+                                            <i className="pi pi-arrow-right text-sm" style={{ color: 'var(--text-color-secondary)' }} />
                                         </div>
                                         <div className="flex align-items-center gap-2">
                                             <i className="pi pi-chart-pie text-xs" style={{ color: course.color }} />

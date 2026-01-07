@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useState } from 'react';
 import { Button } from 'primereact/button';
 import { InputText } from 'primereact/inputtext';
 import { Tag } from 'primereact/tag';
@@ -11,6 +11,7 @@ import { Paginator, PaginatorPageChangeEvent } from 'primereact/paginator';
 import { Dropdown } from 'primereact/dropdown';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
+import { LayoutContext } from '@/layout/context/layoutcontext';
 import AudioPlayer from './AudioPlayer';
 import {
     ExerciseOut,
@@ -36,6 +37,7 @@ const TEXT_LIMIT = 140;
 
 const ExerciseListPage: React.FC = () => {
     const { user, token, role, loading: authLoading } = useAuth();
+    const { setBreadcrumbs } = useContext(LayoutContext);
 
     const [exercises, setExercises] = useState<ExerciseOut[]>([]);
     const [filteredExercises, setFilteredExercises] = useState<ExerciseOut[]>([]);
@@ -63,6 +65,15 @@ const ExerciseListPage: React.FC = () => {
     const [deleting, setDeleting] = useState(false);
     const [downloadingPdf, setDownloadingPdf] = useState(false);
     const router = useRouter();
+
+    // Establecer breadcrumbs correctos al montar el componente
+    useEffect(() => {
+        setBreadcrumbs([
+            { to: '/courses', labels: ['Aplicaciones', 'Cursos'] },
+            { to: '/exercises', labels: ['Aplicaciones', 'Ejercicios (IA)'] },
+            { to: '/exercises/create', labels: ['Aplicaciones', 'Ejercicios (IA)', 'Crear ejercicio'] },
+        ]);
+    }, []);
 
     // Asignación de carpeta (modal)
     const [assignDialogVisible, setAssignDialogVisible] = useState(false);
@@ -119,7 +130,7 @@ const ExerciseListPage: React.FC = () => {
 
     useEffect(() => {
         if (authLoading) return;
-        
+
         // Redirigir a estudiantes a la página principal
         if (!token || role !== 'THERAPIST') {
             if (role === 'STUDENT') {
@@ -131,6 +142,22 @@ const ExerciseListPage: React.FC = () => {
         loadExercises(token, page, pageSize, folderFilter);
         loadFolders(token);
     }, [authLoading, token, role, page, pageSize, folderFilter, loadExercises, loadFolders, router]);
+
+    // Actualizar breadcrumb cuando cambia la carpeta seleccionada
+    useEffect(() => {
+        const selectedFolder = folders.find((f) => f.id === folderFilter);
+        const labels = ['Aplicaciones', 'Ejercicios (IA)'];
+        
+        if (selectedFolder && folderFilter !== 'ALL') {
+            labels.push(selectedFolder.name);
+        }
+        
+        setBreadcrumbs([
+            { to: '/courses', labels: ['Aplicaciones', 'Cursos'] },
+            { to: '/exercises', labels },
+            { to: '/exercises/create', labels: ['Aplicaciones', 'Ejercicios (IA)', 'Crear ejercicio'] },
+        ]);
+    }, [folderFilter, folders, setBreadcrumbs]);
 
     // filtro de búsqueda
     useEffect(() => {
@@ -158,7 +185,7 @@ const ExerciseListPage: React.FC = () => {
         setDetailExercise(exercise);
         setDetailVisible(true);
         setDetailAudioUrl(null);
-        
+
         // Obtener URL firmada si hay audio
         if (exercise.audio_path && token) {
             try {
@@ -215,7 +242,7 @@ const ExerciseListPage: React.FC = () => {
         setDownloadingPdf(true);
         try {
             const pdfUrl = await getExercisePdfUrl(exercise.id, token);
-            
+
             // Descargar el PDF
             const link = document.createElement('a');
             link.href = pdfUrl;
@@ -343,38 +370,38 @@ const ExerciseListPage: React.FC = () => {
 
     return (
         <div className="surface-ground" style={{ minHeight: '60vh', position: 'relative' }}>
-            <div className="flex justify-content-between align-items-center mb-3">
+            <div className="flex flex-column md:flex-row justify-content-between md:align-items-center mb-3 gap-3">
                 <div>
                     <h2 className="text-2xl font-bold mb-1">Mis ejercicios</h2>
                     <p className="text-600 m-0">
-                        {totalExercises} ejercicio
-                        {totalExercises !== 1 ? 's' : ''} guardado
-                        {totalExercises !== 1 ? 's' : ''}
+                        {totalExercises} ejercicio{totalExercises !== 1 ? "s" : ""} guardado{totalExercises !== 1 ? "s" : ""}
                     </p>
                 </div>
 
-                <div className="flex align-items-center gap-2">
-                    <span className="p-input-icon-left mr-2">
+                <div className="flex flex-column md:flex-row md:align-items-center gap-2 w-full md:w-auto">
+                    <span className="p-input-icon-left w-full md:w-24rem">
                         <i className="pi pi-search" />
                         <InputText
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
                             placeholder="Buscar por nombre, texto o prompt"
-                            style={{ width: '18rem' }}
+                            className="w-full"
                         />
                     </span>
 
-                    <Dropdown 
-                        value={pageSize} 
-                        options={[5, 10, 20, 50].map(v => ({ label: `${v} por página`, value: v }))} 
+                    <Dropdown
+                        value={pageSize}
+                        options={[5, 10, 20, 50].map((v) => ({ label: `${v} por página`, value: v }))}
                         onChange={(e) => {
                             setPageSize(e.value);
                             setPage(1);
-                        }} 
+                        }}
                         placeholder="Items por página"
+                        className="w-full md:w-14rem"
                     />
                 </div>
             </div>
+
 
             {/* Paginador superior */}
             {totalExercises > 0 && (
@@ -655,8 +682,8 @@ const ExerciseListPage: React.FC = () => {
                             <div>
                                 <h4 className="text-sm text-600 mb-1">Audio generado</h4>
                                 {detailAudioUrl ? (
-                                    <AudioPlayer 
-                                        src={detailAudioUrl} 
+                                    <AudioPlayer
+                                        src={detailAudioUrl}
                                         exerciseId={detailExercise.id}
                                         token={token || undefined}
                                         exerciseName={detailExercise.name}

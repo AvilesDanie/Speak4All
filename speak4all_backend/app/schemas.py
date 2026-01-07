@@ -219,15 +219,12 @@ class SubmissionOut(BaseModel):
     student_id: int
     course_exercise_id: int
     status: SubmissionStatus
-    audio_path: Optional[str] = None
+    media_path: str  # Ruta de foto o video (obligatorio)
     created_at: datetime
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
-
-class SubmissionStatusUpdate(BaseModel):
-    done: bool
 
 
 
@@ -273,7 +270,7 @@ class StudentExerciseStatus(BaseModel):
     due_date: Optional[datetime]
     status: SubmissionStatus
     submitted_at: Optional[datetime] = None
-    has_audio: bool = False
+    has_media: bool = False  # Indica si tiene evidencia (foto/video)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -293,8 +290,8 @@ class SubmissionListItem(BaseModel):
 
     submission_id: Optional[int] = None
     status: Optional[SubmissionStatus] = None  # None = no entregó
-    has_audio: bool = False
-    audio_path: Optional[str] = None
+    has_media: bool = False  # Indica si tiene evidencia (foto/video)
+    media_path: Optional[str] = None
     submitted_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)

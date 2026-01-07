@@ -13,7 +13,7 @@ import { Paginator, PaginatorPageChangeEvent } from 'primereact/paginator';
 import AudioPlayer from '../../../../exercises/AudioPlayer';
 import { API_BASE } from '@/services/apiClient';
 import { BackendUser, Role } from '@/services/auth';
-import { ExerciseOut, getExerciseAudioUrl, getSubmissionAudioUrl, getExercisePdfUrl } from '@/services/exercises';
+import { ExerciseOut, getExerciseAudioUrl, getSubmissionMediaUrl, getExercisePdfUrl } from '@/services/exercises';
 import { CourseExercise, SubmissionStatus } from '@/services/courses';
 import { useWebSocket, WebSocketMessage } from '@/hooks/useWebSocket';
 
@@ -25,8 +25,8 @@ interface SubmissionListItem {
     email: string;
     submission_id?: number | null;
     status?: SubmissionStatus | null;
-    has_audio?: boolean;
-    audio_path?: string | null;
+    has_media?: boolean;
+    media_path?: string | null;
     submitted_at?: string | null;
 }
 
@@ -35,7 +35,7 @@ interface SubmissionOut {
     student_id: number;
     course_exercise_id: number;
     status: SubmissionStatus;
-    audio_path?: string | null;
+    media_path: string;  // Ruta de foto o video
     created_at: string;
     updated_at: string;
 }
@@ -76,7 +76,7 @@ const TherapistExerciseDetailPage: React.FC = () => {
     const [loadingSubmissionDetail, setLoadingSubmissionDetail] = useState(false);
     const [submissionDetailError, setSubmissionDetailError] = useState<string | null>(null);
     const [exerciseAudioUrl, setExerciseAudioUrl] = useState<string | null>(null);
-    const [submissionAudioUrl, setSubmissionAudioUrl] = useState<string | null>(null);
+    const [submissionMediaUrl, setSubmissionMediaUrl] = useState<string | null>(null);
     const [courseId, setCourseId] = useState<number | null>(null);
     const [submissionCanceledModal, setSubmissionCanceledModal] = useState(false);
     const [canceledStudentName, setCanceledStudentName] = useState<string>('');
@@ -87,7 +87,7 @@ const TherapistExerciseDetailPage: React.FC = () => {
     const [nameFilter, setNameFilter] = useState('');
     const [emailFilter, setEmailFilter] = useState('');
     const [statusFilter, setStatusFilter] = useState<'all' | 'submitted' | 'pending'>('all');
-    const [hasAudioFilter, setHasAudioFilter] = useState<'all' | 'with' | 'without'>('all');
+    const [hasMediaFilter, setHasMediaFilter] = useState<'all' | 'with' | 'without'>('all');
     const [submittedFrom, setSubmittedFrom] = useState<Date | null>(null);
     const [submittedTo, setSubmittedTo] = useState<Date | null>(null);
     const [currentPage, setCurrentPage] = useState(0);
@@ -288,7 +288,7 @@ const TherapistExerciseDetailPage: React.FC = () => {
             try {
                 setSubmissionDetailError(null);
                 setLoadingSubmissionDetail(true);
-                setSubmissionAudioUrl(null);
+                setSubmissionMediaUrl(null);
                 setSubmissionDetail(null);
                 
                 const res = await fetch(
@@ -307,13 +307,21 @@ const TherapistExerciseDetailPage: React.FC = () => {
                 const data: SubmissionDetailOut = await res.json();
                 setSubmissionDetail(data);
 
-                // Obtener URL firmada si hay audio
-                if (data.submission.audio_path && token && data.submission.id) {
+                // Obtener URL firmada de la evidencia (foto/video)
+                if (data.submission.media_path && token && data.submission.id) {
                     try {
-                        const audioUrl = await getSubmissionAudioUrl(data.submission.id, token);
-                        setSubmissionAudioUrl(audioUrl);
+                        const mediaUrlRes = await fetch(
+                            `${API_BASE}/submissions/${data.submission.id}/media-url`,
+                            { headers: { Authorization: `Bearer ${token}` } }
+                        );
+                        if (mediaUrlRes.ok) {
+                            const mediaData = await mediaUrlRes.json();
+                            setSubmissionMediaUrl(mediaData.url);
+                        } else {
+                            setSubmissionDetailError('Error obteniendo evidencia de la entrega.');
+                        }
                     } catch (err) {
-                        setSubmissionDetailError('Error obteniendo audio de la entrega.');
+                        setSubmissionDetailError('Error obteniendo evidencia de la entrega.');
                     }
                 }
             } catch (err) {
@@ -383,11 +391,11 @@ const TherapistExerciseDetailPage: React.FC = () => {
             return false;
         }
 
-        // Filtro por audio
-        if (hasAudioFilter === 'with' && !s.has_audio) {
+        // Filtro por evidencia (media)
+        if (hasMediaFilter === 'with' && !s.has_media) {
             return false;
         }
-        if (hasAudioFilter === 'without' && s.has_audio) {
+        if (hasMediaFilter === 'without' && s.has_media) {
             return false;
         }
 
@@ -588,17 +596,17 @@ const TherapistExerciseDetailPage: React.FC = () => {
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-medium mb-2">Con audio</label>
+                                    <label className="block text-xs font-medium mb-2">Con evidencia</label>
                                     <Dropdown
-                                        value={hasAudioFilter}
+                                        value={hasMediaFilter}
                                         onChange={(e) => {
-                                            setHasAudioFilter(e.value);
+                                            setHasMediaFilter(e.value);
                                             setCurrentPage(0);
                                         }}
                                         options={[
                                             { label: 'Todos', value: 'all' },
-                                            { label: 'Con audio', value: 'with' },
-                                            { label: 'Sin audio', value: 'without' }
+                                            { label: 'Con evidencia', value: 'with' },
+                                            { label: 'Sin evidencia', value: 'without' }
                                         ]}
                                         placeholder="Seleccionar"
                                         className="w-full"
@@ -641,7 +649,7 @@ const TherapistExerciseDetailPage: React.FC = () => {
                                             setNameFilter('');
                                             setEmailFilter('');
                                             setStatusFilter('all');
-                                            setHasAudioFilter('all');
+                                            setHasMediaFilter('all');
                                             setSubmittedFrom(null);
                                             setSubmittedTo(null);
                                             setCurrentPage(0);
@@ -680,8 +688,8 @@ const TherapistExerciseDetailPage: React.FC = () => {
                                                 )}
                                             </div>
                                             <div className="flex align-items-center gap-2">
-                                                {s.has_audio && (
-                                                    <Tag icon="pi pi-microphone" value="Audio" severity="success" />
+                                                {s.has_media && (
+                                                    <Tag icon="pi pi-camera" value="Evidencia" severity="success" />
                                                 )}
                                                 <Button
                                                     icon="pi pi-eye"
@@ -794,15 +802,31 @@ const TherapistExerciseDetailPage: React.FC = () => {
                             </div>
                         </div>
 
-                        {submissionDetail?.submission.audio_path && (
+                        {submissionDetail?.submission.media_path && (
                             <div className="surface-50 border-round-lg p-3">
-                                <h4 className="text-base font-semibold mb-2">Audio de la entrega</h4>
-                                {submissionAudioUrl ? (
-                                    <AudioPlayer src={submissionAudioUrl} />
+                                <h4 className="text-base font-semibold mb-2">Evidencia de la entrega</h4>
+                                {submissionMediaUrl ? (
+                                    <div className="flex justify-content-center">
+                                        {submissionDetail.submission.media_path.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
+                                            <img 
+                                                src={submissionMediaUrl} 
+                                                alt="Evidencia del estudiante"
+                                                style={{ maxWidth: '100%', maxHeight: '500px', borderRadius: '8px' }}
+                                            />
+                                        ) : (
+                                            <video 
+                                                src={submissionMediaUrl} 
+                                                controls
+                                                style={{ maxWidth: '100%', maxHeight: '500px', borderRadius: '8px' }}
+                                            >
+                                                Tu navegador no soporta la reproducción de video.
+                                            </video>
+                                        )}
+                                    </div>
                                 ) : (
                                     <div className="text-center p-3">
                                         <i className="pi pi-spin pi-spinner" style={{ fontSize: '2rem' }} />
-                                        <p className="text-sm text-600 mt-2">Cargando audio...</p>
+                                        <p className="text-sm text-600 mt-2">Cargando evidencia...</p>
                                     </div>
                                 )}
                             </div>

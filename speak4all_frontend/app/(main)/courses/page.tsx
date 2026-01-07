@@ -320,27 +320,41 @@ const CoursesPage: React.FC = () => {
 
     return (
         <div className="surface-ground" style={{ minHeight: '60vh', position: 'relative' }}>
-            <div className="flex justify-content-between align-items-center mb-3">
+            <div className="flex flex-column md:flex-row justify-content-between md:align-items-center mb-3 gap-3">
                 <div>
                     <h2 className="text-2xl font-bold mb-1">Mis cursos</h2>
-                    <p className="text-600 m-0">{totalCourses} curso{totalCourses !== 1 ? 's' : ''} en total</p>
+                    <p className="text-600 m-0">
+                        {totalCourses} curso{totalCourses !== 1 ? "s" : ""} en total
+                    </p>
                 </div>
-                <div className="flex align-items-center gap-2">
-                    <span className="p-input-icon-left">
+
+                <div className="flex flex-column md:flex-row md:align-items-center gap-2 w-full md:w-auto">
+                    <span className="p-input-icon-left w-full md:w-20rem">
                         <i className="pi pi-search" />
-                        <InputText value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar curso o código" style={{ width: '14rem' }} />
+                        <InputText
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            placeholder="Buscar curso o código"
+                            className="w-full"
+                        />
                     </span>
-                    <Dropdown 
-                        value={pageSize} 
-                        options={[5, 10, 20, 50].map(v => ({ label: `${v} por página`, value: v }))} 
+
+                    <Dropdown
+                        value={pageSize}
+                        options={[5, 10, 20, 50].map((v) => ({
+                            label: `${v} por página`,
+                            value: v,
+                        }))}
                         onChange={(e) => {
                             setPageSize(e.value);
                             setPage(1);
-                        }} 
+                        }}
                         placeholder="Items por página"
+                        className="w-full md:w-14rem"
                     />
                 </div>
             </div>
+
 
             {/* Paginador superior */}
             {totalCourses > 0 && (
@@ -471,7 +485,7 @@ const CoursesPage: React.FC = () => {
                                 </div>
                             </div>
                         </div>
-                    );  
+                    );
                 })}
             </div>
 
@@ -565,7 +579,7 @@ const CoursesPage: React.FC = () => {
                     <div className="field">
                         <label className="text-sm mb-1">Color</label>
                         <div className="flex align-items-center gap-2">
-                            <ColorPicker value={newGroupColor} onChange={(e) => setNewGroupColor(typeof e.value === 'string' ? e.value : newGroupColor)} format="hex"/>
+                            <ColorPicker value={newGroupColor} onChange={(e) => setNewGroupColor(typeof e.value === 'string' ? e.value : newGroupColor)} format="hex" />
                             <span className="text-600 text-xs">#{newGroupColor}</span>
                         </div>
                     </div>

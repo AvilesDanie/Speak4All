@@ -26,17 +26,17 @@ router = APIRouter()
 
 
 
-def validate_audio_file(file: UploadFile) -> None:
+def validate_media_file(file: UploadFile) -> None:
     """
-    Valida que el archivo subido sea de audio y no exceda el límite de tamaño.
+    Valida que el archivo subido sea de imagen o video y no exceda el límite de tamaño.
     """
     # Validar tipo de contenido
-    allowed_types = [t.strip() for t in settings.allowed_audio_types.split(",")]
+    allowed_types = [t.strip() for t in settings.allowed_media_types.split(",")]
     
     if file.content_type not in allowed_types:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Tipo de archivo no permitido. Solo se aceptan: {', '.join(allowed_types)}"
+            detail=f"Tipo de archivo no permitido. Solo se aceptan imágenes (JPEG, PNG, WebP) y videos (MP4, WebM, QuickTime)"
         )
     
     # Validar tamaño (leer en chunks para no cargar todo en memoria)
@@ -148,6 +148,7 @@ def get_or_create_submission(
     student_id: int,
     course_exercise_id: int,
 ) -> models.Submission:
+    # Solo obtener si existe; la creación se hace en submit_exercise después de subir media
     sub = (
         db.query(models.Submission)
         .filter(
@@ -156,28 +157,16 @@ def get_or_create_submission(
         )
         .first()
     )
-    if sub:
-        return sub
-
-    sub = models.Submission(
-        student_id=student_id,
-        course_exercise_id=course_exercise_id,
-        status=models.SubmissionStatus.PENDING,
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
-    )
-    db.add(sub)
-    db.flush()  # para tener id
     return sub
 
 
-def save_submission_audio(
+def save_submission_media(
     file: UploadFile,
     course_ex: models.CourseExercise,
     student_id: int,
 ) -> str:
     """
-    Sube el audio a Google Cloud Storage y devuelve el blob_name.
+    Sube la imagen/video a Google Cloud Storage y devuelve el blob_name.
 
     Estructura en el bucket:
       submissions/{course_id}/{course_ex_id}/{student_id}/timestamp_nombre_original.ext
@@ -210,8 +199,7 @@ def save_submission_audio(
 )
 async def submit_exercise(
     course_exercise_id: int,
-    mark_done: bool = True,
-    audio: UploadFile | None = File(default=None),
+    media: UploadFile = File(...),  # Obligatorio: foto o video
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -222,8 +210,7 @@ async def submit_exercise(
     - Solo estudiantes.
     - Debe estar inscrito en el curso de ese ejercicio.
     - Solo se permite dentro del tiempo límite (si hay due_date).
-    - Si se envía audio, se guarda y la entrega se marca como DONE automáticamente.
-    - Si no hay audio pero mark_done=True, se marca como DONE (entrega sin audio).
+    - OBLIGATORIO: Se debe enviar una foto o video como evidencia.
     """
     require_student(current_user)
 
@@ -232,24 +219,40 @@ async def submit_exercise(
     )
     check_due_date(course_ex)
 
-    submission = get_or_create_submission(
+    existing_submission = get_or_create_submission(
         db, current_user.id, course_exercise_id
     )
 
-    # Si se adjunta audio, validarlo y guardarlo
-    if audio is not None:
-        validate_audio_file(audio)
-        audio_path = save_submission_audio(audio, course_ex, current_user.id)
-        submission.audio_path = audio_path
-        submission.status = models.SubmissionStatus.DONE
-        logger.info(f"Audio guardado para submission {submission.id}: {audio_path}")
-    else:
-        # Sin audio, solo marcar o no como hecho
-        submission.status = (
-            models.SubmissionStatus.DONE if mark_done else models.SubmissionStatus.PENDING
-        )
+    # Validar y guardar el archivo de media (obligatorio)
+    validate_media_file(media)
+    
+    # Si ya existía una media anterior, eliminarla del storage
+    if existing_submission and existing_submission.media_path:
+        try:
+            delete_blob(existing_submission.media_path)
+            logger.info(f"Media anterior eliminada de GCS: {existing_submission.media_path}")
+        except Exception as e:
+            logger.warning(f"No se pudo eliminar la media anterior de GCS: {e}")
+    
+    media_path = save_submission_media(media, course_ex, current_user.id)
 
-    submission.updated_at = datetime.now(timezone.utc)
+    if existing_submission:
+        submission = existing_submission
+        submission.media_path = media_path
+        submission.status = models.SubmissionStatus.DONE
+        submission.updated_at = datetime.now(timezone.utc)
+        logger.info(f"Media actualizada para submission {submission.id}: {media_path}")
+    else:
+        submission = models.Submission(
+            student_id=current_user.id,
+            course_exercise_id=course_exercise_id,
+            status=models.SubmissionStatus.DONE,
+            media_path=media_path,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        db.add(submission)
+        logger.info(f"Media guardada para nueva submission: {media_path}")
 
     db.commit()
     db.refresh(submission)
@@ -257,7 +260,7 @@ async def submit_exercise(
     # Broadcast to connected clients con información detallada
     exercise_name = course_ex.exercise.name if course_ex.exercise else 'Ejercicio'
     student_name = current_user.full_name
-    has_audio = submission.audio_path is not None
+    has_media = submission.media_path is not None
     therapist_id = course_ex.course.therapist_id if course_ex.course else None
     
     await manager.broadcast_to_course(
@@ -271,7 +274,7 @@ async def submit_exercise(
                 "student_name": student_name,
                 "exercise_name": exercise_name,
                 "therapist_id": therapist_id,
-                "has_audio": has_audio,
+                "has_media": has_media,
                 "submission_id": submission.id,
             }
         }
@@ -280,121 +283,6 @@ async def submit_exercise(
     return submission
 
 
-@router.patch(
-    "/{submission_id}/status",
-    response_model=schemas.SubmissionOut,
-)
-async def update_submission_status(
-    submission_id: int,
-    body: schemas.SubmissionStatusUpdate,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
-):
-    """
-    Marcar o desmarcar una entrega como realizada.
-    Solo estudiante dueño de la entrega.
-    Solo dentro del tiempo límite.
-    """
-    require_student(current_user)
-
-    sub = db.query(models.Submission).filter(
-        models.Submission.id == submission_id,
-        models.Submission.student_id == current_user.id,
-    ).first()
-
-    if not sub:
-        raise HTTPException(status_code=404, detail="Entrega no encontrada.")
-
-    # Revisar due_date desde el CourseExercise
-    course_ex = db.query(models.CourseExercise).filter(
-        models.CourseExercise.id == sub.course_exercise_id,
-        models.CourseExercise.is_deleted.is_(False),
-    ).first()
-
-    if not course_ex:
-        raise HTTPException(status_code=404, detail="Ejercicio no disponible.")
-
-    check_due_date(course_ex)
-
-    sub.status = (
-        models.SubmissionStatus.DONE if body.done else models.SubmissionStatus.PENDING
-    )
-    sub.updated_at = datetime.now(timezone.utc)
-    db.commit()
-    db.refresh(sub)
-    
-    # Broadcast to connected clients con información detallada
-    exercise_name = course_ex.exercise.name if course_ex.exercise else 'Ejercicio'
-    student_name = current_user.full_name
-    has_audio = sub.audio_path is not None
-    
-    await manager.broadcast_to_course(
-        course_ex.course_id,
-        {
-            "type": "submission_updated",
-            "data": {
-                "course_id": course_ex.course_id,
-                "course_exercise_id": sub.course_exercise_id,
-                "student_id": current_user.id,
-                "student_name": student_name,
-                "exercise_name": exercise_name,
-                "has_audio": has_audio,
-                "submission_id": sub.id,
-            }
-        }
-    )
-    
-    return sub
-
-
-@router.delete(
-    "/{submission_id}/audio",
-    response_model=schemas.SubmissionOut,
-)
-def delete_submission_audio(
-    submission_id: int,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
-):
-    """
-    Borra el audio asociado a una entrega.
-    Solo estudiante dueño de la entrega.
-    Solo dentro del tiempo límite.
-    No borra el registro, solo pone audio_path=None.
-    """
-    require_student(current_user)
-
-    sub = db.query(models.Submission).filter(
-        models.Submission.id == submission_id,
-        models.Submission.student_id == current_user.id,
-    ).first()
-
-    if not sub:
-        raise HTTPException(status_code=404, detail="Entrega no encontrada.")
-
-    course_ex = db.query(models.CourseExercise).filter(
-        models.CourseExercise.id == sub.course_exercise_id,
-        models.CourseExercise.is_deleted.is_(False),
-    ).first()
-
-    if not course_ex:
-        raise HTTPException(status_code=404, detail="Ejercicio no disponible.")
-
-    check_due_date(course_ex)
-
-    # Borrar el archivo de Google Cloud Storage
-    if sub.audio_path:
-        try:
-            delete_blob(sub.audio_path)
-            logger.info(f"Audio eliminado de GCS: {sub.audio_path}")
-        except Exception as e:
-            logger.warning(f"No se pudo eliminar el audio de GCS: {e}")
-    
-    sub.audio_path = None
-    sub.updated_at = datetime.now(timezone.utc)
-    db.commit()
-    db.refresh(sub)
-    return sub
 
 
 @router.delete(
@@ -409,7 +297,7 @@ async def cancel_submission(
     """
     Anula completamente una entrega del estudiante.
     Solo puede hacerlo el estudiante dueño de la entrega.
-    Elimina el registro de la base de datos.
+    Elimina el registro de la base de datos y el archivo de media.
     """
     require_student(current_user)
 
@@ -441,12 +329,12 @@ async def cancel_submission(
     check_due_date(course_ex)
 
     # Borrar el archivo de Google Cloud Storage si existe
-    if sub.audio_path:
+    if sub.media_path:
         try:
-            delete_blob(sub.audio_path)
-            logger.info(f"Audio eliminado de GCS al cancelar submission: {sub.audio_path}")
+            delete_blob(sub.media_path)
+            logger.info(f"Media eliminada de GCS al cancelar submission: {sub.media_path}")
         except Exception as e:
-            logger.warning(f"No se pudo eliminar el audio de GCS: {e}")
+            logger.warning(f"No se pudo eliminar la media de GCS: {e}")
 
     # Obtener datos necesarios antes de eliminar
     course_id = course_ex.course_id
@@ -513,7 +401,7 @@ def list_submissions_by_course_exercise_for_therapist(
             models.User.email,
             models.Submission.id.label("submission_id"),
             models.Submission.status.label("status"),
-            models.Submission.audio_path.label("audio_path"),
+            models.Submission.media_path.label("media_path"),
             models.Submission.created_at.label("submitted_at"),
         )
         .join(models.User, models.User.id == models.CourseStudent.student_id)
@@ -535,7 +423,7 @@ def list_submissions_by_course_exercise_for_therapist(
 
     items: list[schemas.SubmissionListItem] = []
     for row in rows:
-        has_audio = row.audio_path is not None
+        has_media = row.media_path is not None
 
         item = schemas.SubmissionListItem(
             student_id=row.student_id,
@@ -543,8 +431,8 @@ def list_submissions_by_course_exercise_for_therapist(
             email=row.email,
             submission_id=row.submission_id,
             status=row.status,  # puede ser None si no hay entrega
-            has_audio=has_audio,
-            audio_path=row.audio_path,
+            has_media=has_media,
+            media_path=row.media_path,
             submitted_at=row.submitted_at,
         )
         items.append(item)
@@ -706,7 +594,7 @@ def list_student_exercises_status_in_course(
             models.CourseExercise.due_date.label("due_date"),
             models.Submission.status.label("submission_status"),
             models.Submission.created_at.label("submitted_at"),
-            models.Submission.audio_path.label("audio_path"),
+            models.Submission.media_path.label("media_path"),
         )
         .join(models.Exercise, models.Exercise.id == models.CourseExercise.exercise_id)
         .outerjoin(
@@ -736,7 +624,7 @@ def list_student_exercises_status_in_course(
             due_date=row.due_date,
             status=status,
             submitted_at=row.submitted_at,
-            has_audio=bool(row.audio_path),
+            has_media=bool(row.media_path),
         )
         items.append(item)
 
@@ -745,21 +633,24 @@ def list_student_exercises_status_in_course(
 
 
 @router.get(
-    "/{submission_id}/audio-url",
+    "/{submission_id}/media-url",
     response_model=dict,
 )
-def get_submission_audio_url(
+def get_submission_media_url(
     submission_id: int,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    # Opcional: permisos (therapist del curso o student dueño)
+    """
+    Obtiene la URL firmada para acceder a la evidencia (foto/video) de una submission.
+    Solo el terapeuta del curso o el estudiante dueño pueden acceder.
+    """
     sub = db.query(models.Submission).filter(
         models.Submission.id == submission_id
     ).first()
 
-    if not sub or not sub.audio_path:
-        raise HTTPException(status_code=404, detail="Audio no encontrado")
+    if not sub or not sub.media_path:
+        raise HTTPException(status_code=404, detail="Media no encontrada")
 
-    url = generate_signed_url(sub.audio_path, minutes=60)
+    url = generate_signed_url(sub.media_path, minutes=60)
     return {"url": url}

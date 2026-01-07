@@ -21,7 +21,7 @@ interface SubmissionOut {
     student_id: number;
     course_exercise_id: number;
     status: SubmissionStatus;
-    audio_path?: string | null;
+    media_path: string;  // Obligatorio: foto o video
     created_at: string;
     updated_at: string;
 }
@@ -281,15 +281,19 @@ useEffect(() => {
             return;
         }
 
+        if (!file) {
+            setModalErrorMsg('Debes seleccionar una foto o video para entregar el ejercicio.');
+            setShowErrorModal(true);
+            return;
+        }
+
         setSubmitting(true);
         setSuccessMsg(null);
         setErrorMsg(null);
 
         try {
             const formData = new FormData();
-            if (file) {
-                formData.append('audio', file);
-            }
+            formData.append('media', file);
 
             const res = await fetch(
                 `${API_BASE}/submissions/course-exercises/${courseExerciseId}/submit`,
@@ -626,20 +630,19 @@ useEffect(() => {
                 >
                     <h3 className="text-lg font-semibold mb-2">Entregar ejercicio</h3>
                     <p className="text-600 text-sm mb-3">
-                        Sube una grabación leyendo el texto. También puedes marcar el
-                        ejercicio como hecho sin audio (si tu terapeuta lo permite).
+                        Sube una <strong>foto o video</strong> como evidencia de que realizaste el ejercicio. Es obligatorio para marcar el ejercicio como completado.
                     </p>
 
                     <div className="field mb-3">
     <label className="font-medium text-sm mb-2 block">
-        Archivo de audio
+        Foto o Video <span className="text-red-500">*</span>
     </label>
 
     {/* Caja estilizada */}
     <div className="surface-50 border-round-lg p-3 flex flex-column gap-2">
         <div className="flex align-items-center justify-content-between gap-3 flex-wrap">
             <div className="flex align-items-center gap-2">
-                <i className="pi pi-microphone text-lg" />
+                <i className={`pi ${file ? (file.type.startsWith('image/') ? 'pi-image' : 'pi-video') : 'pi-camera'} text-lg`} />
                 <div className="flex flex-column">
                     <span className="text-sm font-medium text-800">
                         {file ? file.name : 'Ningún archivo seleccionado'}
@@ -647,7 +650,7 @@ useEffect(() => {
                     <span className="text-xs text-600">
                         {file
                             ? `${(file.size / 1024 / 1024).toFixed(1)} MB`
-                            : 'MP3, WAV, M4A · máx. unos minutos'}
+                            : 'JPG, PNG, MP4, WebM · máx. 50MB'}
                     </span>
                 </div>
             </div>
@@ -666,7 +669,7 @@ useEffect(() => {
     <input
         ref={fileInputRef}
         type="file"
-        accept="audio/*"
+        accept="image/*,video/*"
         style={{ display: 'none' }}
         onChange={(e) => setFile(e.target.files?.[0] ?? null)}
     />
@@ -683,7 +686,7 @@ useEffect(() => {
                     {studentStatus?.status === 'DONE' ? (
                         <div className="flex flex-column gap-2">
                             <Button
-                                label="Cambiar audio"
+                                label="Cambiar evidencia"
                                 icon="pi pi-upload"
                                 className="w-full"
                                 onClick={handleSubmit}
@@ -705,6 +708,7 @@ useEffect(() => {
                             className="w-full mt-2"
                             onClick={handleSubmit}
                             loading={submitting}
+                            disabled={!file}
                         />
                     )}
                 </div>

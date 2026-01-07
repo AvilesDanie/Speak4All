@@ -7,9 +7,9 @@ export const LayoutContext = React.createContext({} as LayoutContextProps);
 
 export const LayoutProvider = (props: ChildContainerProps) => {
     const [breadcrumbs, setBreadcrumbs] = useState<Breadcrumb[]>([
-        { to: '/courses', labels: ['Apps', 'Cursos'] },
-        { to: '/exercises', labels: ['Apps', 'Ejercicios (IA)'] },
-        { to: '/exercises/create', labels: ['Apps', 'Ejercicios (IA)', 'Crear ejercicio'] },
+        { to: '/courses', labels: ['Aplicaciones', 'Cursos'] },
+        { to: '/exercises', labels: ['Aplicaciones', 'Ejercicios (IA)'] },
+        { to: '/exercises/create', labels: ['Aplicaciones', 'Ejercicios (IA)', 'Crear ejercicio'] },
     ]);
 
     const [layoutConfig, setLayoutConfig] = useState<LayoutConfig>({

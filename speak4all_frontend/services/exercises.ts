@@ -125,8 +125,8 @@ export async function getExerciseAudioUrl(exerciseId: number, token: string): Pr
   return data.url;
 }
 
-export async function getSubmissionAudioUrl(submissionId: number, token: string): Promise<string> {
-  const data = await fetchJSON<{ url: string }>(`/submissions/${submissionId}/audio-url`, { 
+export async function getSubmissionMediaUrl(submissionId: number, token: string): Promise<string> {
+  const data = await fetchJSON<{ url: string }>(`/submissions/${submissionId}/media-url`, { 
     token, 
     method: 'GET' 
   });

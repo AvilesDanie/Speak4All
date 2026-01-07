@@ -38,7 +38,7 @@ import { BackendUser } from '@/services/auth';
 import { useWebSocket, WebSocketMessage } from '@/hooks/useWebSocket';
 import { useExerciseNotifications } from '@/contexts/ExerciseNotificationContext';
 
-const AUDIO_BASE_URL = API_BASE;
+// Evidencias de entrega (foto/video) usan URLs firmadas provistas por el backend
 
 // El backend ahora devuelve URLs firmadas de Google Cloud Storage directamente
 const buildAvatarUrl = (path?: string | null) => {
@@ -61,8 +61,8 @@ interface SubmissionListItem {
     email: string;
     submission_id?: number | null;
     status?: SubmissionStatus | null;
-    has_audio?: boolean;
-    audio_path?: string | null;
+    has_media?: boolean;
+    media_path?: string | null;
     submitted_at?: string | null;
 }
 
@@ -71,7 +71,7 @@ interface SubmissionOut {
     student_id: number;
     course_exercise_id: number;
     status: SubmissionStatus;
-    audio_path?: string | null;
+    media_path?: string | null;
     created_at: string;
     updated_at: string;
 }
@@ -173,7 +173,7 @@ const CoursePage: React.FC = () => {
     const [studentExercisesTextFilter, setStudentExercisesTextFilter] = useState('');
     const [studentExercisesPublishedFrom, setStudentExercisesPublishedFrom] = useState<Date | null>(null);
     const [studentExercisesPublishedTo, setStudentExercisesPublishedTo] = useState<Date | null>(null);
-    const [studentExercisesWithAudio, setStudentExercisesWithAudio] = useState<'all' | 'with' | 'without'>('all');
+    const [studentExercisesWithMedia, setStudentExercisesWithMedia] = useState<'all' | 'with' | 'without'>('all');
 
     // Estados para mostrar/ocultar filtros
     const [showStudentsFilters, setShowStudentsFilters] = useState(true);
@@ -1576,11 +1576,11 @@ const CoursePage: React.FC = () => {
                 }
             }
 
-            // Filtro por con/sin audio
-            if (studentExercisesWithAudio === 'with' && !ex.has_audio) {
+            // Filtro por con/sin evidencia
+            if (studentExercisesWithMedia === 'with' && !ex.has_media) {
                 return false;
             }
-            if (studentExercisesWithAudio === 'without' && ex.has_audio) {
+            if (studentExercisesWithMedia === 'without' && ex.has_media) {
                 return false;
             }
 
@@ -1688,17 +1688,17 @@ const CoursePage: React.FC = () => {
                             />
                         </div>
                         <div className="col-12 md:col-2">
-                            <label className="block text-sm font-medium mb-2">Con audio</label>
+                            <label className="block text-sm font-medium mb-2">Con evidencia</label>
                             <Dropdown
-                                value={studentExercisesWithAudio}
+                                value={studentExercisesWithMedia}
                                 onChange={(e) => {
-                                    setStudentExercisesWithAudio(e.value);
+                                    setStudentExercisesWithMedia(e.value);
                                     setStudentExercisesPage(0);
                                 }}
                                 options={[
                                     { label: 'Todos', value: 'all' },
-                                    { label: 'Con audio', value: 'with' },
-                                    { label: 'Sin audio', value: 'without' }
+                                    { label: 'Con evidencia', value: 'with' },
+                                    { label: 'Sin evidencia', value: 'without' }
                                 ]}
                                 placeholder="Seleccionar"
                                 className="w-full"
@@ -1714,7 +1714,7 @@ const CoursePage: React.FC = () => {
                                     setStudentExercisesTextFilter('');
                                     setStudentExercisesPublishedFrom(null);
                                     setStudentExercisesPublishedTo(null);
-                                    setStudentExercisesWithAudio('all');
+                                    setStudentExercisesWithMedia('all');
                                     setStudentExercisesPage(0);
                                 }}
                             />
@@ -1826,14 +1826,7 @@ const CoursePage: React.FC = () => {
         );
     }
 
-    // helper para audio de submission
-    const getSubmissionAudioSrc = (sub?: SubmissionOut | null) => {
-        if (!sub?.audio_path) return null;
-        const normalized = sub.audio_path.replace(/\\/g, '/');
-        return sub.audio_path.startsWith('http')
-            ? sub.audio_path
-            : `${AUDIO_BASE_URL}/media/${normalized}`;
-    };
+    // Eliminado helper de audio: evidencias se obtienen vía URLs firmadas en vistas específicas
 
     return (
         <div className="surface-ground" style={{ minHeight: '60vh' }}>
