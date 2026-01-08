@@ -147,6 +147,7 @@ export interface StudentExerciseStatus {
   status: SubmissionStatus;
   submitted_at?: string | null;
   has_media?: boolean;
+  submission_id?: number | null;
 }
 
 export type JoinRequestStatusFilter = 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'ALL';

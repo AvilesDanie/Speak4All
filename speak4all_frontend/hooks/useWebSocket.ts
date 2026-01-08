@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 
 export type WebSocketMessage = {
-  type: 'connected' | 'pong' | 'exercise_published' | 'exercise_deleted' | 'submission_created' | 'submission_updated' | 'submission_deleted' | 'student_joined' | 'student_removed' | 'join_request';
+  type: 'connected' | 'pong' | 'exercise_published' | 'exercise_deleted' | 'submission_created' | 'submission_updated' | 'submission_deleted' | 'student_joined' | 'student_removed' | 'join_request' | 'observation_created' | 'evaluation_created' | 'evaluation_updated';
   message?: string;
   data?: any;
 };

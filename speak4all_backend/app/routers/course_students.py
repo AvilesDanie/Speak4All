@@ -200,6 +200,7 @@ def list_student_exercises_status(
         s = subs_map.get(ce.id)
         status = s.status if s else models.SubmissionStatus.PENDING
         submitted_at = s.updated_at if s else None
+        submission_id = s.id if s else None
 
         result.append(
             schemas.StudentExerciseStatus(
@@ -208,6 +209,7 @@ def list_student_exercises_status(
                 due_date=ce.due_date,
                 status=status,
                 submitted_at=submitted_at,
+                submission_id=submission_id,
             )
         )
 
@@ -288,6 +290,7 @@ def list_my_exercises_status(
         status = s.status if s else models.SubmissionStatus.PENDING
         submitted_at = s.updated_at if s else None
         has_media = bool(s.media_path) if s else False
+        submission_id = s.id if s else None
 
         result.append(
             schemas.StudentExerciseStatus(
@@ -297,6 +300,7 @@ def list_my_exercises_status(
                 status=status,
                 submitted_at=submitted_at,
                 has_media=has_media,
+                submission_id=submission_id,
             )
         )
 

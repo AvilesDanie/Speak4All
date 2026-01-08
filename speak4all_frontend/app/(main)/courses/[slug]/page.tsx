@@ -1168,7 +1168,7 @@ const CoursePage: React.FC = () => {
                                             icon="pi pi-arrow-right"
                                             className="p-button-text"
                                             onClick={() => {
-                                                router.push(`/courses/${slug}/exercises/${ce.id}`);
+                                                router.push(`/courses/${slug}/exercises/${ce.id}/submissions`);
                                             }}
                                         />
                                         <Button

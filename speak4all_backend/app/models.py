@@ -165,6 +165,124 @@ class Observation(Base):
     is_deleted = Column(Boolean, default=False)
 
 
+class RubricTemplate(Base):
+    """
+    Plantilla de rúbrica para un ejercicio.
+    Cada ejercicio tiene una rúbrica por defecto pero puede personalizarse por curso.
+    """
+    __tablename__ = "rubric_templates"
+
+    id = Column(Integer, primary_key=True)
+    course_exercise_id = Column(Integer, ForeignKey("course_exercises.id"), nullable=False, unique=True)
+    therapist_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    max_score = Column(Integer, nullable=False, default=100)  # Puntuación máxima
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow)
+    is_deleted = Column(Boolean, default=False)
+
+    course_exercise = relationship("CourseExercise")
+    criteria = relationship("RubricCriteria", back_populates="template", cascade="all, delete-orphan")
+
+
+class RubricCriteria(Base):
+    """
+    Criterios individuales dentro de una rúbrica.
+    Ej: "Pronunciación", "Fluidez", "Comprensión", etc.
+    """
+    __tablename__ = "rubric_criteria"
+
+    id = Column(Integer, primary_key=True)
+    rubric_template_id = Column(Integer, ForeignKey("rubric_templates.id"), nullable=False)
+    name = Column(String, nullable=False)  # Ej: "Pronunciación"
+    description = Column(Text, nullable=True)
+    max_points = Column(Integer, nullable=False, default=25)  # Puntuación máxima para este criterio
+    order = Column(Integer, nullable=False, default=0)  # Orden de visualización
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow)
+    is_deleted = Column(Boolean, default=False)
+
+    template = relationship("RubricTemplate", back_populates="criteria")
+    levels = relationship("RubricLevel", back_populates="criteria", cascade="all, delete-orphan")
+
+
+class RubricLevel(Base):
+    """
+    Niveles de logro para un criterio.
+    Ej para "Pronunciación": "Excelente (25pts)", "Bueno (20pts)", "Aceptable (15pts)", "Insuficiente (0pts)"
+    """
+    __tablename__ = "rubric_levels"
+
+    id = Column(Integer, primary_key=True)
+    rubric_criteria_id = Column(Integer, ForeignKey("rubric_criteria.id"), nullable=False)
+    name = Column(String, nullable=False)  # Ej: "Excelente"
+    description = Column(Text, nullable=True)  # Descripción detallada del nivel
+    points = Column(Integer, nullable=False)  # Puntos asignados a este nivel
+    order = Column(Integer, nullable=False, default=0)  # Orden descendente por puntos
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    is_deleted = Column(Boolean, default=False)
+
+    criteria = relationship("RubricCriteria", back_populates="levels")
+
+
+class Evaluation(Base):
+    """
+    Evaluación de una entrega por parte del terapeuta.
+    Contiene las puntuaciones de cada criterio de la rúbrica.
+    """
+    __tablename__ = "evaluations"
+
+    id = Column(Integer, primary_key=True)
+    submission_id = Column(Integer, ForeignKey("submissions.id"), nullable=False, unique=True)
+    rubric_template_id = Column(Integer, ForeignKey("rubric_templates.id"), nullable=False)
+    therapist_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    total_score = Column(Integer, nullable=False)  # Suma total de puntos
+    notes = Column(Text, nullable=True)  # Notas generales del terapeuta
+    is_locked = Column(Boolean, default=False)  # Bloquear edición después de guardar
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow)
+    is_deleted = Column(Boolean, default=False)
+
+    submission = relationship("Submission")
+    rubric_template = relationship("RubricTemplate")
+    criterion_scores = relationship("EvaluationCriterionScore", back_populates="evaluation", cascade="all, delete-orphan")
+
+
+class EvaluationCriterionScore(Base):
+    """
+    Puntuación asignada a un criterio específico en una evaluación.
+    """
+    __tablename__ = "evaluation_criterion_scores"
+
+    id = Column(Integer, primary_key=True)
+    evaluation_id = Column(Integer, ForeignKey("evaluations.id"), nullable=False)
+    rubric_criteria_id = Column(Integer, ForeignKey("rubric_criteria.id"), nullable=False)
+    rubric_level_id = Column(Integer, ForeignKey("rubric_levels.id"), nullable=False)
+    points_awarded = Column(Integer, nullable=False)  # Puntos reales asignados
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow)
+
+    evaluation = relationship("Evaluation", back_populates="criterion_scores")
+    criteria = relationship("RubricCriteria")
+    level = relationship("RubricLevel")
+
+
+class ExerciseWeighting(Base):
+    """
+    Ponderación/peso de cada ejercicio en el progreso general del estudiante en un curso.
+    Esto permite al terapeuta definir qué ejercicios tienen más importancia.
+    """
+    __tablename__ = "exercise_weightings"
+
+    id = Column(Integer, primary_key=True)
+    course_exercise_id = Column(Integer, ForeignKey("course_exercises.id"), nullable=False, unique=True)
+    therapist_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    weight = Column(Integer, nullable=False, default=1)  # Peso relativo (ej: 1, 2, 3)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow)
+
+    course_exercise = relationship("CourseExercise")
+
+
 class ExerciseFolder(Base):
     """
     Carpeta para organizar ejercicios del terapeuta.

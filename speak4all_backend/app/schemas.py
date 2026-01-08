@@ -271,6 +271,7 @@ class StudentExerciseStatus(BaseModel):
     status: SubmissionStatus
     submitted_at: Optional[datetime] = None
     has_media: bool = False  # Indica si tiene evidencia (foto/video)
+    submission_id: Optional[int] = None  # ID de la submission si existe
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -376,3 +377,173 @@ class ChangePasswordRequest(BaseModel):
     """Schema para cambiar contraseña"""
     current_password: Optional[str] = None  # Opcional para usuarios sin contraseña previa
     new_password: str
+
+
+# ==== RUBRIC (RÚBRICA) ====
+
+class RubricLevelCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    points: int = Field(ge=0)
+    order: int = 0
+
+
+class RubricLevelUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    points: Optional[int] = Field(None, ge=0)
+    order: Optional[int] = None
+
+
+class RubricLevelOut(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    points: int
+    order: int
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RubricCriteriaCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    max_points: int = Field(default=25, ge=1)
+    order: int = 0
+    levels: list[RubricLevelCreate] = []
+
+
+class RubricCriteriaUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    max_points: Optional[int] = Field(None, ge=1)
+    order: Optional[int] = None
+
+
+class RubricCriteriaOut(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    max_points: int
+    order: int
+    created_at: datetime
+    levels: list[RubricLevelOut] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RubricTemplateCreate(BaseModel):
+    course_exercise_id: int
+    max_score: int = Field(default=100, ge=1)
+    criteria: list[RubricCriteriaCreate] = []
+
+
+class RubricTemplateUpdate(BaseModel):
+    max_score: Optional[int] = Field(None, ge=1)
+
+
+class RubricTemplateOut(BaseModel):
+    id: int
+    course_exercise_id: int
+    therapist_id: int
+    max_score: int
+    created_at: datetime
+    updated_at: datetime
+    criteria: list[RubricCriteriaOut] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ==== EVALUATION (EVALUACIÓN) ====
+
+class EvaluationCriterionScoreCreate(BaseModel):
+    rubric_criteria_id: int
+    rubric_level_id: int
+    points_awarded: int = Field(ge=0)
+
+
+class EvaluationCriterionScoreOut(BaseModel):
+    id: int
+    rubric_criteria_id: int
+    rubric_level_id: int
+    points_awarded: int
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class EvaluationCreate(BaseModel):
+    submission_id: int
+    rubric_template_id: int
+    criterion_scores: list[EvaluationCriterionScoreCreate]
+    notes: Optional[str] = None
+
+
+class EvaluationUpdate(BaseModel):
+    criterion_scores: Optional[list[EvaluationCriterionScoreCreate]] = None
+    notes: Optional[str] = None
+
+
+class EvaluationOut(BaseModel):
+    id: int
+    submission_id: int
+    rubric_template_id: int
+    therapist_id: int
+    total_score: int
+    notes: Optional[str] = None
+    is_locked: bool = False
+    created_at: datetime
+    updated_at: datetime
+    criterion_scores: list[EvaluationCriterionScoreOut] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ==== EXERCISE WEIGHTING (PONDERACIÓN) ====
+
+class ExerciseWeightingCreate(BaseModel):
+    course_exercise_id: int
+    weight: int = Field(default=1, ge=1)
+
+
+class ExerciseWeightingUpdate(BaseModel):
+    weight: int = Field(ge=1)
+
+
+class ExerciseWeightingOut(BaseModel):
+    id: int
+    course_exercise_id: int
+    therapist_id: int
+    weight: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ==== STUDENT PROGRESS WITH EVALUATION ====
+
+class StudentProgressWithEvaluation(BaseModel):
+    """Progreso de un estudiante considerando evaluaciones y ponderaciones"""
+    student_id: int
+    full_name: str
+    email: str
+    avatar_path: Optional[str] = None
+    weighted_score: float  # Promedio ponderado de calificaciones
+    total_exercises: int
+    evaluated_exercises: int
+    evaluations_summary: Optional[str] = None  # Resumen o descripción del progreso
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SubmissionWithEvaluation(BaseModel):
+    """Entrega con su evaluación y observaciones"""
+    submission: SubmissionOut
+    student: UserOut
+    evaluation: Optional[EvaluationOut] = None
+    observations: list[ObservationOut] = []
+    rubric: Optional[RubricTemplateOut] = None
+
+    model_config = ConfigDict(from_attributes=True)

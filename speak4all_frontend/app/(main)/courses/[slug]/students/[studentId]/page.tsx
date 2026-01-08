@@ -15,6 +15,10 @@ import { API_BASE } from '@/services/apiClient';
 import { BackendUser, Role } from '@/services/auth';
 import { StudentExerciseStatus, SubmissionStatus } from '@/services/courses';
 import { useWebSocket, WebSocketMessage } from '@/hooks/useWebSocket';
+import { ObservationsDisplay } from '@/components/ObservationsDisplay';
+import { RubricDisplay } from '@/components/RubricDisplay';
+import { evaluationService } from '@/services/rubrics';
+import { StudentProgressView } from '@/components/StudentProgressView';
 
 // Evidencias de entrega (foto/video) se obtienen vía URL firmada del backend
 
@@ -71,6 +75,12 @@ const StudentProgressPage: React.FC = () => {
     const [submissionMediaUrl, setSubmissionMediaUrl] = useState<string | null>(null);
     const [submissionCanceledModal, setSubmissionCanceledModal] = useState(false);
     const [canceledExerciseName, setCanceledExerciseName] = useState<string>('');
+    
+    // Observaciones y rúbrica
+    const [observations, setObservations] = useState<any[]>([]);
+    const [evaluation, setEvaluation] = useState<any>(null);
+    const [rubric, setRubric] = useState<any>(null);
+    const [loadingEval, setLoadingEval] = useState(false);
 
     // Estados para filtros y paginación
     const [exerciseNameFilter, setExerciseNameFilter] = useState('');
@@ -252,6 +262,11 @@ const StudentProgressPage: React.FC = () => {
                 setSubmissionDetailError(null);
                 setLoadingSubmissionDetail(true);
                 setSubmissionMediaUrl(null);
+                setObservations([]);
+                setEvaluation(null);
+                setRubric(null);
+                setLoadingEval(true);
+                
                 const res = await fetch(
                     `${API_BASE}/submissions/course-exercises/${selectedExercise.course_exercise_id}/students/${studentId}`,
                     { headers: { Authorization: `Bearer ${token}` } }
@@ -282,11 +297,56 @@ const StudentProgressPage: React.FC = () => {
                         setSubmissionDetailError('Error obteniendo evidencia de la entrega.');
                     }
                 }
+                
+                // Cargar observaciones
+                try {
+                    const obsRes = await fetch(
+                        `${API_BASE}/observations/submission/${data.submission.id}`,
+                        { headers: { Authorization: `Bearer ${token}` } }
+                    );
+                    if (obsRes.ok) {
+                        const obsData = await obsRes.json();
+                        setObservations(Array.isArray(obsData) ? obsData : obsData.observations || []);
+                    }
+                } catch (err) {
+                    console.error('Error cargando observaciones:', err);
+                }
+                
+                // Cargar evaluación
+                try {
+                    const evalRes = await fetch(
+                        `${API_BASE}/evaluations/submission/${data.submission.id}`,
+                        { headers: { Authorization: `Bearer ${token}` } }
+                    );
+                    if (evalRes.ok) {
+                        const evalData = await evalRes.json();
+                        setEvaluation(evalData);
+                        
+                        // Cargar rúbrica si existe evaluación
+                        if (evalData && selectedExercise) {
+                            try {
+                                const rubricRes = await fetch(
+                                    `${API_BASE}/rubrics/${selectedExercise.course_exercise_id}`,
+                                    { headers: { Authorization: `Bearer ${token}` } }
+                                );
+                                if (rubricRes.ok) {
+                                    const rubricData = await rubricRes.json();
+                                    setRubric(rubricData);
+                                }
+                            } catch (err) {
+                                console.error('Error cargando rúbrica:', err);
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.error('Error cargando evaluación:', err);
+                }
             } catch (err) {
                 console.error('Error de red al obtener detalle de entrega:', err);
                 setSubmissionDetailError('Error de red al cargar la entrega.');
             } finally {
                 setLoadingSubmissionDetail(false);
+                setLoadingEval(false);
             }
         };
 
@@ -418,6 +478,14 @@ const StudentProgressPage: React.FC = () => {
                     </div>
                 </div>
             </div>
+
+            {/* Progreso general y estadísticas */}
+            {courseId && (
+                <div className="card mb-3">
+                    <h3 className="text-lg font-semibold m-0 mb-3">Progreso general del estudiante</h3>
+                    <StudentProgressView studentId={Number(studentId)} courseId={courseId} />
+                </div>
+            )}
 
             {/* Lista de ejercicios */}
             <div className="card">
@@ -801,6 +869,99 @@ const StudentProgressPage: React.FC = () => {
                                 )}
                             </div>
                         )}
+                        
+                        {/* Observaciones */}
+                        <div className="surface-50 border-round-lg p-3">
+                            <div className="flex justify-content-between align-items-center mb-3">
+                                <h4 className="text-base font-semibold m-0">Observaciones</h4>
+                                <Button
+                                    icon="pi pi-plus"
+                                    label="Agregar"
+                                    className="p-button-text p-button-sm"
+                                    disabled={loadingEval || !submissionDetail}
+                                    onClick={async () => {
+                                        if (!token || !submissionDetail) return;
+                                        const text = window.prompt('Escribe la observación');
+                                        if (!text || !text.trim()) return;
+                                        try {
+                                            const res = await fetch(`${API_BASE}/observations/`, {
+                                                method: 'POST',
+                                                headers: {
+                                                    'Content-Type': 'application/json',
+                                                    Authorization: `Bearer ${token}`,
+                                                },
+                                                body: JSON.stringify({ submission_id: submissionDetail.submission.id, text }),
+                                            });
+                                            if (!res.ok) {
+                                                const t = await res.text();
+                                                throw new Error(t || 'No se pudo agregar');
+                                            }
+                                            const created = await res.json();
+                                            setObservations((prev) => [...prev, created]);
+                                        } catch (err) {
+                                            console.error('Error agregando observación', err);
+                                            setSubmissionDetailError('No se pudo agregar la observación');
+                                        }
+                                    }}
+                                />
+                            </div>
+                            {loadingEval ? (
+                                <p className="text-sm text-600">Cargando observaciones...</p>
+                            ) : observations && observations.length > 0 ? (
+                                <ObservationsDisplay
+                                    observations={observations}
+                                    isTherapist={true}
+                                    onAddObservation={async (text: string) => {
+                                        if (!token || !submissionDetail) return;
+                                        const res = await fetch(`${API_BASE}/observations/`, {
+                                            method: 'POST',
+                                            headers: {
+                                                'Content-Type': 'application/json',
+                                                Authorization: `Bearer ${token}`,
+                                            },
+                                            body: JSON.stringify({ submission_id: submissionDetail.submission.id, text }),
+                                        });
+                                        if (!res.ok) {
+                                            const t = await res.text();
+                                            throw new Error(t || 'No se pudo agregar');
+                                        }
+                                        const created = await res.json();
+                                        setObservations((prev) => [...prev, created]);
+                                    }}
+                                />
+                            ) : (
+                                <p className="text-sm text-600">Sin observaciones</p>
+                            )}
+                        </div>
+                        
+                        {/* Rúbrica y Evaluación */}
+                        <div className="surface-50 border-round-lg p-3">
+                            <div className="flex justify-content-between align-items-center mb-3">
+                                <h4 className="text-base font-semibold m-0">Rúbrica y Evaluación</h4>
+                                <Button
+                                    label="Evaluar"
+                                    icon="pi pi-pencil"
+                                    className="p-button-text p-button-sm"
+                                    onClick={() => {
+                                        if (submissionDetail?.submission.id) {
+                                            router.push(`/courses/${slug}/exercises/${selectedExercise?.course_exercise_id}/submissions/${submissionDetail.submission.id}?studentId=${studentId}`);
+                                        }
+                                    }}
+                                />
+                            </div>
+                            {loadingEval ? (
+                                <p className="text-sm text-600">Cargando evaluación...</p>
+                            ) : evaluation && rubric ? (
+                                <RubricDisplay
+                                    rubric={rubric}
+                                    evaluation={evaluation}
+                                />
+                            ) : evaluation ? (
+                                <p className="text-sm text-600">Evaluación sin rúbrica disponible</p>
+                            ) : (
+                                <p className="text-sm text-600">Sin evaluación</p>
+                            )}
+                        </div>
                     </div>
                 )}
             </Dialog>

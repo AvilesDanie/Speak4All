@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from .routers import (
     auth, courses, exercises, submissions, course_exercises, 
     observations, course_students, course_groups, exercise_folders,
-    websocket, users
+    websocket, users, rubrics, evaluations, progress
 )
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
@@ -57,6 +57,9 @@ app.include_router(observations.router, prefix="/observations", tags=["observati
 app.include_router(course_students.router, prefix="/course-students", tags=["course-students"])
 app.include_router(course_groups.router, prefix="/course-groups", tags=["course-groups"])
 app.include_router(exercise_folders.router, prefix="/exercise-folders", tags=["exercise-folders"])
+app.include_router(rubrics.router)
+app.include_router(evaluations.router)
+app.include_router(progress.router)
 
 app.include_router(websocket.router, tags=["websocket"])
 

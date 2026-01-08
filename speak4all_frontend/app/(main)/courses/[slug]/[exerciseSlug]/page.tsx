@@ -7,6 +7,9 @@ import { Tag } from 'primereact/tag';
 import { ProgressBar } from 'primereact/progressbar';
 import { Dialog } from 'primereact/dialog';
 import { InputTextarea } from 'primereact/inputtextarea';
+import { Card } from 'primereact/card';
+import { Message } from 'primereact/message';
+import { RadioButton } from 'primereact/radiobutton';
 import AudioPlayer from '../../../exercises/AudioPlayer';
 import { API_BASE } from '@/services/apiClient';
 import { BackendUser, Role } from '@/services/auth';
@@ -24,6 +27,50 @@ interface SubmissionOut {
     media_path: string;  // Obligatorio: foto o video
     created_at: string;
     updated_at: string;
+}
+
+interface Observation {
+    id: number;
+    text: string;
+    created_at: string;
+    therapist_id?: number;
+    therapist_name?: string;
+}
+
+interface RubricLevel {
+    id: number;
+    level?: number;
+    name: string;
+    description: string;
+    points: number;
+    order?: number;
+}
+
+interface RubricCriterion {
+    id: number;
+    name: string;
+    description?: string;
+    max_points: number;
+    order?: number;
+    levels: RubricLevel[];
+}
+
+interface RubricTemplate {
+    id: number;
+    max_score: number;
+    criteria: RubricCriterion[];
+}
+
+interface Evaluation {
+    id: number;
+    total_score: number;
+    notes?: string | null;
+    is_locked?: boolean;
+    criterion_scores: Array<{
+        rubric_criteria_id: number;
+        rubric_level_id: number;
+        points_awarded: number;
+    }>;
 }
 
 const AUDIO_BASE_URL = API_BASE;
@@ -80,6 +127,11 @@ const CourseExerciseDetailPage: React.FC = () => {
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const [exerciseAudioUrl, setExerciseAudioUrl] = useState<string | null>(null);
     const [downloadingPdf, setDownloadingPdf] = useState(false);
+    
+    const [observations, setObservations] = useState<Observation[]>([]);
+    const [rubric, setRubric] = useState<RubricTemplate | null>(null);
+    const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
+    const [submissionId, setSubmissionId] = useState<number | null>(null);
 
     // Cargar user + token + ids desde el slug
     // Cargar user + token + ids desde el exerciseSlug
@@ -199,6 +251,73 @@ useEffect(() => {
         }
     }, [courseExercise?.exercise?.id, token]);
 
+    // Cargar observaciones, rúbrica y evaluación cuando el estudiante tiene entrega
+    useEffect(() => {
+        const loadStudentFeedback = async () => {
+            if (!token || !courseExerciseId || studentStatus?.status !== 'DONE') {
+                return;
+            }
+
+            const subId = studentStatus.submission_id;
+            if (!subId) {
+                console.log('No submission_id disponible en studentStatus');
+                return;
+            }
+
+            setSubmissionId(subId);
+
+            try {
+                // 1. Cargar observaciones
+                try {
+                    const resObs = await fetch(
+                        `${API_BASE}/observations/submission/${subId}`,
+                        { headers: { Authorization: `Bearer ${token}` } }
+                    );
+                    if (resObs.ok) {
+                        const obsData = await resObs.json();
+                        setObservations(Array.isArray(obsData) ? obsData : obsData.observations || []);
+                    }
+                } catch (err) {
+                    console.error('Error cargando observaciones:', err);
+                }
+
+                // 2. Cargar evaluación
+                try {
+                    const resEval = await fetch(
+                        `${API_BASE}/evaluations/submission/${subId}`,
+                        { headers: { Authorization: `Bearer ${token}` } }
+                    );
+                    if (resEval.ok) {
+                        const evalData = await resEval.json();
+                        if (evalData) {
+                            setEvaluation(evalData);
+
+                            // 3. Cargar rúbrica si existe evaluación
+                            try {
+                                const resRubric = await fetch(
+                                    `${API_BASE}/rubrics/${courseExerciseId}`,
+                                    { headers: { Authorization: `Bearer ${token}` } }
+                                );
+                                if (resRubric.ok) {
+                                    const rubricData = await resRubric.json();
+                                    setRubric(rubricData);
+                                }
+                            } catch (err) {
+                                console.error('Error cargando rúbrica:', err);
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.error('Error cargando evaluación:', err);
+                }
+            } catch (err) {
+                console.error('Error obteniendo feedback del estudiante:', err);
+            }
+        };
+
+        loadStudentFeedback();
+    }, [token, courseExerciseId, studentStatus?.status, studentStatus?.submission_id]);
+
     // WebSocket para actualizaciones en tiempo real
     const { message } = useWebSocket({ 
         courseId, 
@@ -250,8 +369,51 @@ useEffect(() => {
                         .catch((err) => console.error('Error reloading status:', err));
                 }
             }
+        } else if (message.type === 'observation_created' || message.type === 'evaluation_created' || message.type === 'evaluation_updated') {
+            // Recargar observaciones y evaluación cuando el terapeuta agregue feedback
+            const data = message.data as any;
+            if (data.course_exercise_id === courseExerciseId && submissionId) {
+                // Recargar observaciones
+                if (message.type === 'observation_created') {
+                    fetch(
+                        `${API_BASE}/observations/submission/${submissionId}`,
+                        { headers: { Authorization: `Bearer ${token}` } }
+                    )
+                        .then((res) => res.json())
+                        .then((obsData) => {
+                            setObservations(Array.isArray(obsData) ? obsData : obsData.observations || []);
+                        })
+                        .catch((err) => console.error('Error reloading observations:', err));
+                }
+                
+                // Recargar evaluación
+                if (message.type === 'evaluation_created' || message.type === 'evaluation_updated') {
+                    fetch(
+                        `${API_BASE}/evaluations/submission/${submissionId}`,
+                        { headers: { Authorization: `Bearer ${token}` } }
+                    )
+                        .then((res) => res.json())
+                        .then((evalData) => {
+                            if (evalData) {
+                                setEvaluation(evalData);
+                                
+                                // Cargar rúbrica si aún no está cargada
+                                if (!rubric && courseExerciseId) {
+                                    fetch(
+                                        `${API_BASE}/rubrics/${courseExerciseId}`,
+                                        { headers: { Authorization: `Bearer ${token}` } }
+                                    )
+                                        .then((res) => res.json())
+                                        .then((rubricData) => setRubric(rubricData))
+                                        .catch((err) => console.error('Error loading rubric:', err));
+                                }
+                            }
+                        })
+                        .catch((err) => console.error('Error reloading evaluation:', err));
+                }
+            }
         }
-    }, [message, courseId, courseExerciseId, token]);
+    }, [message, courseId, courseExerciseId, token, submissionId, rubric]);
 
     const statusTag = () => {
         if (!studentStatus) return null;
@@ -713,6 +875,114 @@ useEffect(() => {
                     )}
                 </div>
             </div>
+
+            {/* Sección de Observaciones y Evaluación (solo si hay entrega) */}
+            {studentStatus?.status === 'DONE' && (observations.length > 0 || evaluation) && (
+                <div className="grid mt-3">
+                    {/* Observaciones */}
+                    {observations.length > 0 && (
+                        <div className="col-12 lg:col-6">
+                            <Card title="Observaciones del terapeuta">
+                                <div className="flex flex-column gap-3">
+                                    {observations.map((obs) => (
+                                        <div key={obs.id} className="surface-50 border-round p-3">
+                                            <p className="m-0 text-800">{obs.text}</p>
+                                            <div className="flex justify-content-between align-items-center mt-2">
+                                                <small className="text-600">
+                                                    {obs.therapist_name || `Terapeuta #${obs.therapist_id}`}
+                                                </small>
+                                                <small className="text-600">
+                                                    {new Date(obs.created_at).toLocaleString()}
+                                                </small>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </Card>
+                        </div>
+                    )}
+
+                    {/* Evaluación con Rúbrica */}
+                    {evaluation && rubric && (
+                        <div className="col-12 lg:col-6">
+                            <Card title="Evaluación">
+                                <div className="flex flex-column gap-3">
+                                    <Message severity="success" text="✔️ Tu ejercicio ha sido evaluado" />
+                                    
+                                    <div className="p-3 bg-gray-50 border-round">
+                                        <p className="text-sm text-600 m-0">
+                                            Puntuación máxima: <strong>{rubric.max_score} pts</strong>
+                                        </p>
+                                        <p className="text-sm text-600 m-0">
+                                            Obtenida: <strong className="text-blue-600">{evaluation.total_score} pts</strong>
+                                        </p>
+                                        <ProgressBar 
+                                            value={Math.min((evaluation.total_score / rubric.max_score) * 100, 100)} 
+                                            showValue={false} 
+                                            className="mt-2" 
+                                        />
+                                    </div>
+
+                                    {rubric.criteria.map((crit) => {
+                                        const score = evaluation.criterion_scores.find(
+                                            s => s.rubric_criteria_id === crit.id
+                                        );
+                                        const selectedLevel = score 
+                                            ? crit.levels.find(l => l.id === score.rubric_level_id)
+                                            : null;
+
+                                        return (
+                                            <div key={crit.id} className="border border-round p-3">
+                                                <div className="flex justify-content-between align-items-start mb-2">
+                                                    <div>
+                                                        <h4 className="m-0 text-base font-semibold">{crit.name}</h4>
+                                                        <p className="m-0 text-sm text-600">Máximo: {crit.max_points} pts</p>
+                                                    </div>
+                                                    <span className="font-bold text-blue-600">
+                                                        {score?.points_awarded ?? 0} / {crit.max_points}
+                                                    </span>
+                                                </div>
+
+                                                <div className="grid">
+                                                    {crit.levels
+                                                        .slice()
+                                                        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+                                                        .map((lvl) => (
+                                                            <div key={lvl.id} className="col-12 md:col-6 flex align-items-start gap-2">
+                                                                <RadioButton
+                                                                    inputId={`crit-${crit.id}-lvl-${lvl.id}`}
+                                                                    name={`crit-${crit.id}`}
+                                                                    value={lvl.id}
+                                                                    checked={selectedLevel?.id === lvl.id}
+                                                                    disabled
+                                                                />
+                                                                <label htmlFor={`crit-${crit.id}-lvl-${lvl.id}`} className="flex flex-column">
+                                                                    <span className={`font-semibold ${selectedLevel?.id === lvl.id ? 'text-blue-600' : ''}`}>
+                                                                        {lvl.name}: {lvl.points} pts
+                                                                    </span>
+                                                                    <span className="text-sm text-600">{lvl.description}</span>
+                                                                </label>
+                                                            </div>
+                                                        ))}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+
+                                    {evaluation.notes && (
+                                        <div className="flex flex-column gap-2">
+                                            <label className="text-sm font-semibold text-700">Notas del terapeuta</label>
+                                            <div className="surface-50 border-round p-3">
+                                                <p className="m-0 text-800">{evaluation.notes}</p>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </Card>
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* Modal de éxito */}
             <Dialog
