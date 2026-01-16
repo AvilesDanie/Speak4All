@@ -861,6 +861,9 @@ useEffect(() => {
                                 className="w-full p-button-danger p-button-outlined"
                                 onClick={handleCancelSubmission}
                                 loading={submitting}
+                                disabled={submitting || evaluation !== null}
+                                tooltip={evaluation ? "No se puede anular una entrega ya calificada" : ""}
+                                tooltipOptions={{ position: "top" }}
                             />
                         </div>
                     ) : (

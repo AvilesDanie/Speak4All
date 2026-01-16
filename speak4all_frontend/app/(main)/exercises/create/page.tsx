@@ -6,6 +6,7 @@ import { Button } from 'primereact/button';
 import { Dialog } from 'primereact/dialog';
 import { Tag } from 'primereact/tag';
 import { Card } from 'primereact/card';
+import { Dropdown } from 'primereact/dropdown';
 import AudioPlayer from '../AudioPlayer';
 import React, { useEffect, useState } from 'react';
 import { API_BASE } from '@/services/apiClient';
@@ -18,6 +19,7 @@ import {
     createExercise,
     getExerciseAudioUrl,
 } from '@/services/exercises';
+import { Profile, getProfiles, createProfile, updateProfile, deleteProfile } from '@/services/profiles';
 
 const AUDIO_BASE_URL = API_BASE;
 
@@ -53,6 +55,16 @@ const CreateExercisePage: React.FC = () => {
 
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+    // Perfiles
+    const [profiles, setProfiles] = useState<Profile[]>([]);
+    const [selectedProfileId, setSelectedProfileId] = useState<number | null>(null);
+    const [profileDialogVisible, setProfileDialogVisible] = useState(false);
+    const [profileDialogMode, setProfileDialogMode] = useState<'create' | 'edit'>('create');
+    const [editingProfileId, setEditingProfileId] = useState<number | null>(null);
+    const [profileName, setProfileName] = useState('');
+    const [profileDescription, setProfileDescription] = useState('');
+    const [savingProfile, setSavingProfile] = useState(false);
 
     // 🔍 estado para detalles
     const [detailVisible, setDetailVisible] = useState(false);
@@ -129,6 +141,22 @@ const CreateExercisePage: React.FC = () => {
         fetchExercises();
     }, [token, role]);
 
+    // Cargar perfiles del terapeuta
+    useEffect(() => {
+        if (!token || role !== 'THERAPIST') return;
+
+        const loadProfiles = async () => {
+            try {
+                const data = await getProfiles(token);
+                setProfiles(data);
+            } catch (err) {
+                console.error('Error cargando perfiles:', err);
+            }
+        };
+
+        loadProfiles();
+    }, [token, role]);
+
     useEffect(() => {
         setPlainText(stripRepTags(markedText));
     }, [markedText]);
@@ -155,7 +183,7 @@ const CreateExercisePage: React.FC = () => {
 
         setGenerating(true);
         try {
-            const data = await generateExercisePreview(token, prompt.trim());
+            const data = await generateExercisePreview(token, prompt.trim(), selectedProfileId);
             setPreview(data);
             setMarkedText(data.marked_text);
             setPlainText(stripRepTags(data.text));
@@ -201,7 +229,8 @@ const CreateExercisePage: React.FC = () => {
                 exerciseName.trim(),
                 plainText.trim(),
                 markedText.trim(),
-                prompt.trim() || null
+                prompt.trim(),
+                selectedProfileId
             );
             setMyExercises((prev) => [created, ...prev]);
             setSuccessMsg('Ejercicio creado correctamente.');
@@ -373,6 +402,83 @@ const CreateExercisePage: React.FC = () => {
                                     generar. La IA devolverá un texto donde las partes a
                                     repetir estarán marcadas con <code>[REP]...[/REP]</code>.
                                 </p>
+                            </div>
+                        </div>
+
+                        <div className="grid">
+                            <div className="col-12 md:col-8">
+                                <label className="font-medium mb-2 block">Perfil (opcional)</label>
+                                <div className="flex flex-column md:flex-row gap-2">
+                                    <Dropdown
+                                        value={selectedProfileId}
+                                        options={[
+                                            { label: 'Sin perfil', value: null },
+                                            ...profiles.map((p) => ({ label: p.name, value: p.id })),
+                                        ]}
+                                        onChange={(e) => setSelectedProfileId(e.value)}
+                                        placeholder="Selecciona un perfil"
+                                        className="w-full md:w-6"
+                                    />
+                                    <div className="flex gap-2">
+                                        <Button
+                                            type="button"
+                                            label="Agregar"
+                                            icon="pi pi-plus"
+                                            className="p-button-outlined"
+                                            onClick={() => {
+                                                setProfileDialogMode('create');
+                                                setEditingProfileId(null);
+                                                setProfileName('');
+                                                setProfileDescription('');
+                                                setProfileDialogVisible(true);
+                                            }}
+                                        />
+                                        <Button
+                                            type="button"
+                                            label="Editar"
+                                            icon="pi pi-pencil"
+                                            className="p-button-outlined"
+                                            disabled={!selectedProfileId}
+                                            onClick={() => {
+                                                if (!selectedProfileId) return;
+                                                const current = profiles.find((p) => p.id === selectedProfileId);
+                                                if (!current) return;
+                                                setProfileDialogMode('edit');
+                                                setEditingProfileId(current.id);
+                                                setProfileName(current.name);
+                                                setProfileDescription(current.description || '');
+                                                setProfileDialogVisible(true);
+                                            }}
+                                        />
+                                        <Button
+                                            type="button"
+                                            label="Eliminar"
+                                            icon="pi pi-trash"
+                                            className="p-button-outlined p-button-danger"
+                                            disabled={!selectedProfileId}
+                                            onClick={async () => {
+                                                if (!token || !selectedProfileId) return;
+                                                const current = profiles.find((p) => p.id === selectedProfileId);
+                                                if (!current) return;
+                                                const confirmed = window.confirm(`¿Eliminar el perfil "${current.name}"?`);
+                                                if (!confirmed) return;
+                                                try {
+                                                    await deleteProfile(token, current.id);
+                                                    setProfiles((prev) => prev.filter((p) => p.id !== current.id));
+                                                    setSelectedProfileId(null);
+                                                } catch (err: any) {
+                                                    console.error('Error eliminando perfil:', err);
+                                                    setErrorMsg(err?.message || 'No se pudo eliminar el perfil.');
+                                                }
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+                                {selectedProfileId && (
+                                    <p className="text-600 text-sm mt-2">
+                                        {profiles.find((p) => p.id === selectedProfileId)?.description || ''}
+                                    </p>
+                                )}
                             </div>
                         </div>
 
@@ -579,6 +685,73 @@ const CreateExercisePage: React.FC = () => {
                 onHide={() => setShowExercisesModal(false)}
             >
                 {renderExercisesList()}
+            </Dialog>
+
+            {/* Modal: crear/editar perfil */}
+            <Dialog
+                header={profileDialogMode === 'create' ? 'Nuevo perfil' : 'Editar perfil'}
+                visible={profileDialogVisible}
+                style={{ width: '32rem', maxWidth: '95vw' }}
+                modal
+                onHide={() => setProfileDialogVisible(false)}
+                footer={
+                    <div className="flex justify-content-end gap-2">
+                        <Button
+                            label="Cancelar"
+                            className="p-button-text"
+                            onClick={() => setProfileDialogVisible(false)}
+                        />
+                        <Button
+                            label={savingProfile ? 'Guardando...' : 'Guardar perfil'}
+                            disabled={savingProfile}
+                            onClick={async () => {
+                                if (!token) return;
+                                if (!profileName.trim() || !profileDescription.trim()) {
+                                    setErrorMsg('Nombre y descripción del perfil son obligatorios.');
+                                    return;
+                                }
+                                setSavingProfile(true);
+                                try {
+                                    if (profileDialogMode === 'create') {
+                                        const created = await createProfile(token, profileName.trim(), profileDescription.trim());
+                                        setProfiles((prev) => [created, ...prev]);
+                                        setSelectedProfileId(created.id);
+                                    } else if (editingProfileId) {
+                                        const updated = await updateProfile(token, editingProfileId, profileName.trim(), profileDescription.trim());
+                                        setProfiles((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+                                    }
+                                    setProfileDialogVisible(false);
+                                } catch (err: any) {
+                                    console.error('Error guardando perfil:', err);
+                                    setErrorMsg(err?.message || 'No se pudo guardar el perfil.');
+                                } finally {
+                                    setSavingProfile(false);
+                                }
+                            }}
+                        />
+                    </div>
+                }
+            >
+                <div className="field">
+                    <label className="block font-medium mb-2">Nombre</label>
+                    <InputText
+                        value={profileName}
+                        onChange={(e) => setProfileName(e.target.value)}
+                        placeholder="Ej. Niños con dislexia leve"
+                        className="w-full"
+                    />
+                </div>
+                <div className="field">
+                    <label className="block font-medium mb-2">Descripción</label>
+                    <InputTextarea
+                        value={profileDescription}
+                        onChange={(e) => setProfileDescription(e.target.value)}
+                        rows={4}
+                        autoResize
+                        placeholder="Describe características, necesidades y tono deseado para este perfil"
+                        className="w-full"
+                    />
+                </div>
             </Dialog>
 
             {/* Modal de detalles del ejercicio */}

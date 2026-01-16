@@ -115,6 +115,26 @@ class Exercise(Base):
     folder = relationship("ExerciseFolder", back_populates="exercises")
 
 
+class ExerciseCategory(Base):
+    """
+    Categoría de ejercicio creada por el terapeuta.
+    Sirve para clasificar ejercicios (ej: "Pronunciación", "Vocabulario", "Comprensión").
+    """
+    __tablename__ = "exercise_categories"
+
+    id = Column(Integer, primary_key=True)
+    therapist_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    name = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    color = Column(String, nullable=True)  # Código de color hex para UI
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow)
+    is_deleted = Column(Boolean, default=False)
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+
+    therapist = relationship("User")
+
+
 class CourseExercise(Base):
     """
     Publicación de un ejercicio en un curso.
@@ -124,6 +144,7 @@ class CourseExercise(Base):
     id = Column(Integer, primary_key=True)
     course_id = Column(Integer, ForeignKey("courses.id"), nullable=False)
     exercise_id = Column(Integer, ForeignKey("exercises.id"), nullable=False)
+    category_id = Column(Integer, ForeignKey("exercise_categories.id"), nullable=True)
     published_at = Column(DateTime(timezone=True), default=utcnow)
     due_date = Column(DateTime(timezone=True), nullable=True)
     is_deleted = Column(Boolean, default=False)
@@ -131,6 +152,7 @@ class CourseExercise(Base):
 
     course = relationship("Course", back_populates="exercises")
     exercise = relationship("Exercise")
+    category = relationship("ExerciseCategory")
 
 
 class Submission(Base):
@@ -334,3 +356,22 @@ class CourseGroupAssignment(Base):
     __table_args__ = (
         UniqueConstraint("course_group_id", "course_id", name="uniq_course_group_assignment"),
     )
+
+
+class Profile(Base):
+    """
+    Perfil de estudiante para personalización de ejercicios con IA.
+    Contiene características del estudiante que se envían a OpenAI para generar ejercicios adaptados.
+    """
+    __tablename__ = "profiles"
+
+    id = Column(Integer, primary_key=True)
+    therapist_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    name = Column(String, nullable=False)  # Nombre del perfil (ej: "Niños con dislexia")
+    description = Column(Text, nullable=False)  # Descripción detallada para IA
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow)
+    is_deleted = Column(Boolean, default=False)
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+
+    therapist = relationship("User")

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Button } from 'primereact/button';
 import { Tag } from 'primereact/tag';
@@ -100,17 +100,52 @@ export default function SubmissionDetailPage() {
   const [selectedLevels, setSelectedLevels] = useState<Record<number, { levelId: number; points: number }>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [savingEval, setSavingEval] = useState(false);
   const [addingObs, setAddingObs] = useState(false);
 
   const numericSubmissionId = useMemo(() => parseInt(submissionId), [submissionId]);
   const numericCourseExerciseId = useMemo(() => parseInt(courseExerciseId), [courseExerciseId]);
+  
+  const studentIdFetchedRef = useRef(false);
 
+  // Efecto para obtener el studentId si no viene en query params
+  useEffect(() => {
+    if (studentId || !token || authLoading || studentIdFetchedRef.current) return;
+
+    studentIdFetchedRef.current = true;
+
+    const fetchStudentId = async () => {
+      try {
+        const resList = await fetch(
+          `${API_BASE}/submissions/course-exercises/${numericCourseExerciseId}/students`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        if (resList.ok) {
+          const list = await resList.json();
+          const found = list.find((item: any) => item.submission_id === numericSubmissionId);
+          if (found?.student_id) {
+            setStudentId(found.student_id);
+          }
+        }
+      } catch (err) {
+        console.error('Error obteniendo studentId:', err);
+      }
+    };
+
+    fetchStudentId();
+  }, [numericCourseExerciseId, numericSubmissionId, token, authLoading]);
+
+  // Efecto principal para cargar datos
   useEffect(() => {
     if (!token || authLoading) return;
     if (user?.role !== 'THERAPIST') {
       setError('Solo los terapeutas pueden acceder a esta entrega.');
       setLoading(false);
+      return;
+    }
+    if (!studentId) {
+      // Esperar a que se cargue el studentId
       return;
     }
 
@@ -119,31 +154,9 @@ export default function SubmissionDetailPage() {
         setError(null);
         setLoading(true);
 
-        let targetStudentId = studentId;
-        if (!targetStudentId) {
-          // Buscar el studentId a partir del listado de entregas
-          const resList = await fetch(
-            `${API_BASE}/submissions/course-exercises/${numericCourseExerciseId}/students`,
-            { headers: { Authorization: `Bearer ${token}` } }
-          );
-          if (resList.ok) {
-            const list = await resList.json();
-            const found = list.find((item: any) => item.submission_id === numericSubmissionId);
-            if (found?.student_id) {
-              targetStudentId = found.student_id;
-              setStudentId(found.student_id);
-            }
-          }
-        }
-
-        if (!targetStudentId) {
-          setError('No se pudo identificar al estudiante de esta entrega.');
-          return;
-        }
-
         // Detalle de la entrega
         const resDetail = await fetch(
-          `${API_BASE}/submissions/course-exercises/${numericCourseExerciseId}/students/${targetStudentId}`,
+          `${API_BASE}/submissions/course-exercises/${numericCourseExerciseId}/students/${studentId}`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
         if (!resDetail.ok) {
@@ -213,7 +226,7 @@ export default function SubmissionDetailPage() {
     };
 
     loadAll();
-  }, [token, user, authLoading, numericCourseExerciseId, numericSubmissionId, studentId]);
+  }, [token, authLoading, numericCourseExerciseId, numericSubmissionId, studentId]);
 
   const totalScore = useMemo(() => {
     if (!rubric) return 0;
@@ -269,7 +282,9 @@ export default function SubmissionDetailPage() {
       }
       console.log('Evaluación guardada:', saved);
       setEvaluation(saved as Evaluation);
-      alert('Evaluación guardada correctamente');
+      setSuccessMessage('Evaluación guardada correctamente');
+      // Auto-ocultar mensaje después de 5 segundos
+      setTimeout(() => setSuccessMessage(null), 5000);
     } catch (err: any) {
       console.error('Error guardando evaluación:', err);
       setError(err?.message || 'No se pudo guardar la evaluación.');
@@ -338,6 +353,10 @@ export default function SubmissionDetailPage() {
 
       {error && (
         <Message severity="error" text={error} className="mb-3" />
+      )}
+
+      {successMessage && (
+        <Message severity="success" text={successMessage} className="mb-3" />
       )}
 
       {detail ? (

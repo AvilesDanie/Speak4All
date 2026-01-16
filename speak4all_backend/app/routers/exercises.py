@@ -30,6 +30,7 @@ def require_therapist(user: models.User):
 @router.post("/preview", response_model=schemas.ExerciseGenerateResponse)
 def generate_exercise_preview(
     body: schemas.ExerciseGenerateRequest,
+    db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
     """
@@ -40,7 +41,21 @@ def generate_exercise_preview(
     """
     require_therapist(current_user)
 
-    marked = ai_exercises.generate_marked_text_from_prompt(body.prompt)
+    profile_description = None
+    if body.profile_id is not None:
+        profile = db.query(models.Profile).filter(
+            models.Profile.id == body.profile_id,
+            models.Profile.therapist_id == current_user.id,
+            models.Profile.is_deleted.is_(False),
+        ).first()
+        if not profile:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Perfil no encontrado"
+            )
+        profile_description = profile.description
+
+    marked = ai_exercises.generate_marked_text_from_prompt(body.prompt, profile_description)
     clean = ai_exercises.strip_rep_tags(marked)
 
     return schemas.ExerciseGenerateResponse(
@@ -63,6 +78,19 @@ def create_exercise(
       - Genera el audio usando marked_text (o text si no viene marcado).
     """
     require_therapist(current_user)
+
+    # Validar perfil opcional
+    if body.profile_id is not None:
+        profile = db.query(models.Profile).filter(
+            models.Profile.id == body.profile_id,
+            models.Profile.therapist_id == current_user.id,
+            models.Profile.is_deleted.is_(False),
+        ).first()
+        if not profile:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Perfil no encontrado"
+            )
 
     # 1) elegir texto marcado para TTS
     marked = body.marked_text or body.text

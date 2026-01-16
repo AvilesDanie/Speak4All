@@ -64,6 +64,8 @@ const ExerciseListPage: React.FC = () => {
     const [exerciseToDelete, setExerciseToDelete] = useState<ExerciseOut | null>(null);
     const [deleting, setDeleting] = useState(false);
     const [downloadingPdf, setDownloadingPdf] = useState(false);
+    const [errorModalVisible, setErrorModalVisible] = useState(false);
+    const [errorMessage, setErrorMessage] = useState<string>('');
     const router = useRouter();
 
     // Establecer breadcrumbs correctos al montar el componente
@@ -207,7 +209,8 @@ const ExerciseListPage: React.FC = () => {
             setExerciseToDelete(null);
         } catch (err) {
             console.error('Error eliminando ejercicio:', err);
-            alert('No se pudo eliminar el ejercicio.');
+            setErrorMessage('No se pudo eliminar el ejercicio.');
+            setErrorModalVisible(true);
         } finally {
             setDeleting(false);
         }
@@ -235,7 +238,8 @@ const ExerciseListPage: React.FC = () => {
 
     const handleDownloadPdf = async (exercise: ExerciseOut) => {
         if (!token) {
-            alert('Error al descargar el PDF.');
+            setErrorMessage('Error al descargar el PDF.');
+            setErrorModalVisible(true);
             return;
         }
 
@@ -252,7 +256,8 @@ const ExerciseListPage: React.FC = () => {
             document.body.removeChild(link);
         } catch (err) {
             console.error('Error descargando PDF:', err);
-            alert('Error al descargar el PDF.');
+            setErrorMessage('Error al descargar el PDF.');
+            setErrorModalVisible(true);
         } finally {
             setDownloadingPdf(false);
         }
@@ -915,6 +920,25 @@ const ExerciseListPage: React.FC = () => {
                         />
                     </div>
                 </div>
+            </Dialog>
+
+            {/* Modal de error */}
+            <Dialog
+                header="Error"
+                visible={errorModalVisible}
+                modal
+                style={{ width: '26rem', maxWidth: '95vw' }}
+                onHide={() => setErrorModalVisible(false)}
+                footer={
+                    <Button
+                        label="Cerrar"
+                        icon="pi pi-times"
+                        onClick={() => setErrorModalVisible(false)}
+                        className="p-button-outlined"
+                    />
+                }
+            >
+                <p className="m-0">{errorMessage}</p>
             </Dialog>
         </div>
     );

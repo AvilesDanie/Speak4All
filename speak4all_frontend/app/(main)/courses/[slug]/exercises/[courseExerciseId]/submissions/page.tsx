@@ -2,9 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { API_BASE } from '@/services/apiClient';
 import { Button } from 'primereact/button';
+import { Tag } from 'primereact/tag';
 
 interface Submission {
   id: number;
@@ -15,17 +16,21 @@ interface Submission {
   is_evaluated: boolean;
   score?: number;
   max_score?: number;
+  passed?: boolean;
+  percent?: number | null;
 }
 
 export default function ExerciseSubmissionsPage() {
   const { token, user } = useAuth();
   const params = useParams();
+  const router = useRouter();
+  const slug = params.slug as string;
   const courseExerciseId = parseInt(params.courseExerciseId as string);
-  const courseId = parseInt(params.slug as string);
 
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [rubricMax, setRubricMax] = useState<number | null>(null);
 
   useEffect(() => {
     if (!token) return;
@@ -37,6 +42,18 @@ export default function ExerciseSubmissionsPage() {
 
     try {
       setLoading(true);
+      // Obtener rúbrica del ejercicio para conocer la puntuación máxima real
+      let maxScore: number | null = null;
+      try {
+        const rubRes = await fetch(`${API_BASE}/rubrics/${courseExerciseId}` , {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (rubRes.ok) {
+          const rubric = await rubRes.json();
+          maxScore = typeof rubric?.max_score === 'number' ? rubric.max_score : null; 
+          setRubricMax(maxScore);
+        }
+      } catch {}
       // GET /submissions/course-exercises/{course_exercise_id}/students
       const response = await fetch(
         `${API_BASE}/submissions/course-exercises/${courseExerciseId}/students`,
@@ -51,7 +68,7 @@ export default function ExerciseSubmissionsPage() {
       const data = await response.json();
       
       // Transformar los datos a formato compatible con el componente
-      const transformed = data
+      const baseList: Submission[] = data
         .filter((item: any) => item.submission_id)
         .map((item: any) => ({
           id: item.submission_id,
@@ -61,10 +78,38 @@ export default function ExerciseSubmissionsPage() {
           created_at: item.submitted_at,
           is_evaluated: false, // Se podría hacer query a evaluations
           score: null,
-          max_score: null,
+          max_score: maxScore,
+          passed: false,
+          percent: null,
         }));
-      
-      setSubmissions(transformed);
+
+      // Para cada submission, intentar obtener evaluación y rúbrica para calcular si aprueba
+      const withScores = await Promise.all(
+        baseList.map(async (s) => {
+          try {
+            const evalRes = await fetch(`${API_BASE}/evaluations/submission/${s.id}`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (!evalRes.ok) return s; // sin evaluación, mantener como no evaluada
+            const evaluation = await evalRes.json();
+            const totalScore: number | undefined = evaluation?.total_score;
+            const localMax = s.max_score ?? rubricMax;
+            if (totalScore == null || localMax == null) return s; // sin puntaje válido, no marcar como evaluada
+
+            const passed = typeof totalScore === 'number' && typeof localMax === 'number' && localMax > 0
+              ? totalScore / localMax >= 0.7
+              : false;
+            const percent = typeof totalScore === 'number' && typeof localMax === 'number' && localMax > 0
+              ? Math.round((totalScore / localMax) * 100)
+              : null;
+            return { ...s, is_evaluated: true, score: totalScore, max_score: localMax, passed, percent };
+          } catch {
+            return s;
+          }
+        })
+      );
+
+      setSubmissions(withScores);
       setError(null);
     } catch (err: any) {
       console.error('Error loading submissions:', err);
@@ -92,11 +137,22 @@ export default function ExerciseSubmissionsPage() {
 
   return (
     <div className="surface-ground p-3 md:p-4" style={{ minHeight: '60vh' }}>
+      <Button
+              type="button"
+              icon="pi pi-arrow-left"
+              className="p-button-text p-button-rounded"
+              label="Volver al curso"
+              onClick={() => router.push(`/courses/${slug}`)}
+            />
       <div className="card border-round-2xl p-3 md:p-4">
+        
         <div className="flex justify-content-between align-items-center mb-3">
-          <div>
-            <p className="m-0 text-600 text-sm">Ejercicio</p>
-            <h2 className="m-0 text-xl font-semibold">Entregas del ejercicio</h2>
+          
+          <div className="flex align-items-center gap-2">
+            
+            <div>
+              <h2 className="m-0 text-xl font-semibold">Entregas del ejercicio</h2>
+            </div>
           </div>
         </div>
 
@@ -127,25 +183,29 @@ export default function ExerciseSubmissionsPage() {
                   </div>
 
                   <div className="flex align-items-center justify-content-between">
-                    <div>
+                    <div className="flex align-items-center gap-2">
                       {submission.is_evaluated ? (
                         <div className="text-sm">
                           <span className="text-green-600 font-semibold">Evaluada</span>
                           <p className="m-0 text-600">
-                            {submission.score} / {submission.max_score}
+                            {submission.score ?? '-'} / {submission.max_score ?? '-'}
                           </p>
                         </div>
                       ) : (
                         <span className="text-yellow-600 font-semibold text-sm">Pendiente</span>
+                      )}
+                      {submission.is_evaluated && (
+                        <Tag
+                          value={`${submission.passed ? 'Aprobado' : 'Reprobado'}${typeof submission.percent === 'number' ? ` ${submission.percent}%` : ''}`}
+                          severity={submission.passed ? 'success' : 'danger'}
+                        />
                       )}
                     </div>
                     <Button
                       label="Ver"
                       icon="pi pi-arrow-right"
                       className="p-button-text"
-                      onClick={() => {
-                        window.location.href = `/courses/${courseId}/exercises/${courseExerciseId}/submissions/${submission.id}?studentId=${submission.student_id}`;
-                      }}
+                      onClick={() => router.push(`/courses/${slug}/exercises/${courseExerciseId}/submissions/${submission.id}?studentId=${submission.student_id}`)}
                     />
                   </div>
                 </div>

@@ -85,6 +85,7 @@ async def publish_exercise_to_course(
         exercise_id=exercise.id,
         published_at=datetime.now(timezone.utc),
         due_date=body.due_date,
+        category_id=body.category_id,
     )
 
     db.add(course_ex)

@@ -196,11 +196,11 @@ export function getCourseExercises(token: string, courseId: number) {
   return fetchJSON<CourseExercise[]>(`/course-exercises/${courseId}`, { token });
 }
 
-export function publishCourseExercise(token: string, courseId: number, exerciseId: number, dueDate?: string | null) {
+export function publishCourseExercise(token: string, courseId: number, exerciseId: number, dueDate?: string | null, categoryId?: number | null) {
   return fetchJSON<CourseExercise>(`/course-exercises/`, {
     token,
     method: 'POST',
-    body: JSON.stringify({ course_id: courseId, exercise_id: exerciseId, due_date: dueDate ?? null }),
+    body: JSON.stringify({ course_id: courseId, exercise_id: exerciseId, due_date: dueDate ?? null, category_id: categoryId ?? null }),
   });
 }
 

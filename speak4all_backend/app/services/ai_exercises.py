@@ -40,16 +40,27 @@ SYSTEM_RULES = (
     "Sugiere que puede pausar el audio si necesita más tiempo. No pidas feedback."
 )
 
-def generate_marked_text_from_prompt(therapist_prompt: str) -> str:
+def generate_marked_text_from_prompt(therapist_prompt: str, profile_description: str | None = None) -> str:
     """
     Usa IA para generar el guion con marcadores [REP]...[/REP].
+    Si hay profile_description, personaliza el ejercicio para ese perfil.
     """
     logger.info(f"Generando texto con IA para prompt: {therapist_prompt[:100]}...")
+
+    user_prompt = therapist_prompt
+    if profile_description:
+        user_prompt = (
+            "Genera un ejercicio personalizado para el siguiente perfil de estudiante:\n\n"
+            f"{profile_description}\n\n"
+            f"Requisitos del ejercicio:\n{therapist_prompt}"
+        )
+        logger.info("Usando perfil personalizado para generación")
+
     r = client.chat.completions.create(
         model=OPENAI_MODEL,
         messages=[
             {"role": "system", "content": SYSTEM_RULES},
-            {"role": "user", "content": therapist_prompt},
+            {"role": "user", "content": user_prompt},
         ],
         temperature=0.6,
         max_tokens=700,

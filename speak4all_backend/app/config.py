@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000"
 
     # === File Upload Limits ===
-    max_upload_size_mb: int = 50
+    max_upload_size_mb: int = 500
     allowed_media_types: str = "image/jpeg,image/jpg,image/png,image/webp,video/mp4,video/webm,video/quicktime"
 
     # === Logging ===

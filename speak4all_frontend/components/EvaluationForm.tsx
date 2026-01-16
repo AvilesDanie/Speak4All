@@ -45,6 +45,7 @@ export function EvaluationForm({
   }>({});
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleSelectLevel = (criteriaId: number, levelId: number, points: number) => {
     setSelectedLevels((prev) => ({
@@ -82,7 +83,7 @@ export function EvaluationForm({
       onSubmit?.();
     } catch (error) {
       console.error('Error creating evaluation:', error);
-      alert(error instanceof Error ? error.message : 'Error creando evaluación');
+      setError(error instanceof Error ? error.message : 'Error creando evaluación');
     } finally {
       setSubmitting(false);
     }
@@ -176,6 +177,12 @@ export function EvaluationForm({
         <p className="mt-3 text-sm text-red-600">
           Debes seleccionar un nivel para cada criterio
         </p>
+      )}
+
+      {error && (
+        <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+          {error}
+        </div>
       )}
     </div>
   );

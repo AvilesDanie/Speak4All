@@ -10,6 +10,42 @@ from ..deps import get_current_user
 router = APIRouter()
 
 
+def _attach_therapist_name(rows):
+    """Agregar nombre del terapeuta a cada observación para la respuesta.
+
+    Maneja filas devueltas como SQLAlchemy Row, tuplas o instancias directas.
+    """
+    enriched: list[models.Observation] = []
+    for row in rows:
+        obs = None
+        full_name = None
+        # Caso 1: ya es una instancia del modelo
+        if isinstance(row, models.Observation):
+            obs = row
+        else:
+            # Intentar desempaquetar como (obs, full_name)
+            try:
+                maybe_obs, maybe_name = row  # soporta Row/tuple
+                obs = maybe_obs
+                full_name = maybe_name
+            except Exception:
+                # Fallback para RowMapping
+                try:
+                    mapping = row._mapping  # type: ignore[attr-defined]
+                    obs = mapping[models.Observation]
+                    full_name = mapping[models.User.full_name]
+                except Exception:
+                    pass
+        if obs is not None:
+            try:
+                setattr(obs, "therapist_name", full_name)
+            except Exception:
+                # Si no se puede setear, ignorar y continuar
+                pass
+            enriched.append(obs)
+    return enriched
+
+
 def require_therapist(user: models.User):
     if user.role != models.UserRole.THERAPIST:
         raise HTTPException(
@@ -76,6 +112,7 @@ def create_observation(
     db.add(obs)
     db.commit()
     db.refresh(obs)
+    obs.therapist_name = current_user.full_name
     return obs
 
 
@@ -105,6 +142,7 @@ def update_observation(
     obs.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(obs)
+    obs.therapist_name = current_user.full_name
     return obs
 
 
@@ -133,6 +171,7 @@ def delete_observation(
     obs.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(obs)
+    obs.therapist_name = current_user.full_name
     return obs
 
 
@@ -151,11 +190,15 @@ def list_observations_for_submission(
     if current_user.role == models.UserRole.THERAPIST:
         # Validar acceso
         therapist_can_access_submission(db, current_user.id, submission_id)
-        q = db.query(models.Observation).filter(
+        q = db.query(
+            models.Observation,
+            models.User.full_name,
+        ).join(models.User, models.Observation.therapist_id == models.User.id).filter(
             models.Observation.submission_id == submission_id,
             models.Observation.is_deleted.is_(False),
         )
-        return q.order_by(models.Observation.created_at.asc()).all()
+        rows = q.order_by(models.Observation.created_at.asc()).all()
+        return _attach_therapist_name(rows)
 
     elif current_user.role == models.UserRole.STUDENT:
         # Verificar que la entrega es del estudiante
@@ -167,11 +210,15 @@ def list_observations_for_submission(
         if not sub:
             raise HTTPException(status_code=404, detail="Entrega no encontrada.")
 
-        q = db.query(models.Observation).filter(
+        q = db.query(
+            models.Observation,
+            models.User.full_name,
+        ).join(models.User, models.Observation.therapist_id == models.User.id).filter(
             models.Observation.submission_id == submission_id,
             models.Observation.is_deleted.is_(False),
         )
-        return q.order_by(models.Observation.created_at.asc()).all()
+        rows = q.order_by(models.Observation.created_at.asc()).all()
+        return _attach_therapist_name(rows)
 
     else:
         raise HTTPException(status_code=403, detail="Rol no permitido.")

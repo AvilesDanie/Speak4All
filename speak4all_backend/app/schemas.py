@@ -153,6 +153,7 @@ class StudentProgressOut(BaseModel):
 
 class ExerciseGenerateRequest(BaseModel):
     prompt: str
+    profile_id: int | None = None  # Perfil opcional para personalizar IA
 
 
 class ExerciseGenerateResponse(BaseModel):
@@ -164,10 +165,11 @@ class ExerciseGenerateResponse(BaseModel):
 
 class ExerciseCreateRequest(BaseModel):
     name: str
-    prompt: str | None = None
+    prompt: str  # Prompt manual obligatorio
     text: str                  # texto limpio (lo que ve el usuario)
     marked_text: str | None = None  # si viene, se usa éste para TTS
     folder_id: int | None = None  # carpeta donde guardar el ejercicio
+    profile_id: int | None = None  # Perfil opcional seleccionado al generar
 
 
 class ExerciseOut(BaseModel):
@@ -184,6 +186,32 @@ class ExerciseOut(BaseModel):
 
 
 
+# ==== EXERCISE CATEGORY ====
+
+class ExerciseCategoryCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    color: Optional[str] = None
+
+
+class ExerciseCategoryUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    color: Optional[str] = None
+
+
+class ExerciseCategoryOut(BaseModel):
+    id: int
+    therapist_id: int
+    name: str
+    description: Optional[str] = None
+    color: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 # ==== COURSE EXERCISES ====
 
 from datetime import datetime
@@ -192,6 +220,7 @@ from typing import Optional
 class CourseExerciseCreate(BaseModel):
     course_id: int
     exercise_id: int
+    category_id: Optional[int] = None
     due_date: Optional[datetime] = None
 
 
@@ -199,11 +228,13 @@ class CourseExerciseOut(BaseModel):
     id: int
     course_id: int
     exercise_id: int
+    category_id: Optional[int] = None
     published_at: datetime
     due_date: Optional[datetime]
     is_deleted: bool
-    # opcional: incluir información del ejercicio
+    # opcional: incluir información del ejercicio y categoría
     exercise: Optional[ExerciseOut] = None
+    category: Optional[ExerciseCategoryOut] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -243,6 +274,7 @@ class ObservationOut(BaseModel):
     id: int
     submission_id: int
     therapist_id: int
+    therapist_name: str | None = None
     text: str
     created_at: datetime
     updated_at: datetime
@@ -524,6 +556,19 @@ class ExerciseWeightingOut(BaseModel):
 
 # ==== STUDENT PROGRESS WITH EVALUATION ====
 
+class ExerciseScoreProgress(BaseModel):
+    course_exercise_id: int
+    exercise_name: str
+    score: Optional[float] = None
+    max_score: Optional[float] = None
+    weight: Optional[int] = None
+    evaluated: bool = False
+    category_id: Optional[int] = None
+    category_name: Optional[str] = None
+    category_color: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
 class StudentProgressWithEvaluation(BaseModel):
     """Progreso de un estudiante considerando evaluaciones y ponderaciones"""
     student_id: int
@@ -534,6 +579,7 @@ class StudentProgressWithEvaluation(BaseModel):
     total_exercises: int
     evaluated_exercises: int
     evaluations_summary: Optional[str] = None  # Resumen o descripción del progreso
+    exercise_scores: list[ExerciseScoreProgress] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -545,5 +591,28 @@ class SubmissionWithEvaluation(BaseModel):
     evaluation: Optional[EvaluationOut] = None
     observations: list[ObservationOut] = []
     rubric: Optional[RubricTemplateOut] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ==== PROFILE (PERFILES DE ESTUDIANTE) ====
+
+class ProfileCreate(BaseModel):
+    name: str
+    description: str
+
+
+class ProfileUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
+class ProfileOut(BaseModel):
+    id: int
+    therapist_id: int
+    name: str
+    description: str
+    created_at: datetime
+    updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

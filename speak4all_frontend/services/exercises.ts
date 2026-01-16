@@ -96,23 +96,31 @@ export interface ExercisePreview {
   marked_text: string;
 }
 
-export function generateExercisePreview(token: string, prompt: string) {
+export function generateExercisePreview(token: string, prompt: string, profileId?: number | null) {
   return fetchJSON<ExercisePreview>('/exercises/preview', {
     token,
     method: 'POST',
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify({ prompt, profile_id: profileId ?? null }),
   });
 }
 
-export function createExercise(token: string, name: string, text: string, markedText: string, prompt?: string | null) {
+export function createExercise(
+  token: string,
+  name: string,
+  text: string,
+  markedText: string,
+  prompt: string,
+  profileId?: number | null
+) {
   return fetchJSON<ExerciseOut>('/exercises/', {
     token,
     method: 'POST',
     body: JSON.stringify({
       name,
-      prompt: prompt ?? null,
+      prompt,
       text,
       marked_text: markedText,
+      profile_id: profileId ?? null,
     }),
   });
 }

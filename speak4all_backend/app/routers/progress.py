@@ -211,6 +211,7 @@ def get_student_progress(
     total_weight = 0
     weighted_score_sum = 0
     evaluated_count = 0
+    exercise_scores: list[schemas.ExerciseScoreProgress] = []
     
     for ce in course_exercises:
         # Obtener peso del ejercicio (por defecto 1)
@@ -230,6 +231,37 @@ def get_student_progress(
             models.Submission.student_id == student_id,
             models.Evaluation.is_deleted.is_(False),
         ).first()
+
+        exercise_name = None
+        if hasattr(ce, "exercise") and ce.exercise:
+            exercise_name = ce.exercise.name
+        if not exercise_name:
+            exercise_obj = db.query(models.Exercise).filter(
+                models.Exercise.id == ce.exercise_id
+            ).first()
+            exercise_name = exercise_obj.name if exercise_obj else f"Ejercicio {ce.id}"
+
+        # Obtener información de categoría
+        category_id = None
+        category_name = None
+        category_color = None
+        if ce.category_id:
+            category = db.query(models.ExerciseCategory).filter(
+                models.ExerciseCategory.id == ce.category_id
+            ).first()
+            if category:
+                category_id = category.id
+                category_name = category.name
+                category_color = category.color
+
+        exercise_entry = schemas.ExerciseScoreProgress(
+            course_exercise_id=ce.id,
+            exercise_name=exercise_name,
+            weight=weight,
+            category_id=category_id,
+            category_name=category_name,
+            category_color=category_color,
+        )
         
         if evaluation:
             evaluated_count += 1
@@ -241,6 +273,13 @@ def get_student_progress(
             if rubric and rubric.max_score > 0:
                 normalized_score = (evaluation.total_score / rubric.max_score) * 100
                 weighted_score_sum += normalized_score * weight
+                exercise_entry.score = evaluation.total_score
+                exercise_entry.max_score = rubric.max_score
+                exercise_entry.evaluated = True
+            else:
+                exercise_entry.evaluated = True
+
+        exercise_scores.append(exercise_entry)
     
     # Calcular promedio ponderado
     weighted_score = (weighted_score_sum / total_weight) if total_weight > 0 else 0.0
@@ -255,7 +294,8 @@ def get_student_progress(
         weighted_score=round(weighted_score, 2),
         total_exercises=len(course_exercises),
         evaluated_exercises=evaluated_count,
-        evaluations_summary=summary
+        evaluations_summary=summary,
+        exercise_scores=exercise_scores,
     )
 
 
@@ -416,10 +456,17 @@ def get_submission_with_evaluation(
         joinedload(models.Evaluation.criterion_scores)
     ).first()
     
-    observations = db.query(models.Observation).filter(
+    observations_q = db.query(
+        models.Observation,
+        models.User.full_name,
+    ).join(models.User, models.Observation.therapist_id == models.User.id).filter(
         models.Observation.submission_id == submission_id,
         models.Observation.is_deleted.is_(False),
-    ).order_by(models.Observation.created_at.asc()).all()
+    ).order_by(models.Observation.created_at.asc())
+    observations = []
+    for obs, full_name in observations_q.all():
+        obs.therapist_name = full_name
+        observations.append(obs)
     
     rubric = None
     if evaluation:

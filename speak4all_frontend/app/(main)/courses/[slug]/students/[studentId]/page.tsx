@@ -7,6 +7,7 @@ import { Tag } from 'primereact/tag';
 import { ProgressBar } from 'primereact/progressbar';
 import { Dialog } from 'primereact/dialog';
 import { InputText } from 'primereact/inputtext';
+import { InputTextarea } from 'primereact/inputtextarea';
 import { InputNumber } from 'primereact/inputnumber';
 import { Calendar } from 'primereact/calendar';
 import { Dropdown } from 'primereact/dropdown';
@@ -17,10 +18,10 @@ import { StudentExerciseStatus, SubmissionStatus } from '@/services/courses';
 import { useWebSocket, WebSocketMessage } from '@/hooks/useWebSocket';
 import { ObservationsDisplay } from '@/components/ObservationsDisplay';
 import { RubricDisplay } from '@/components/RubricDisplay';
+import { CategoryPieChart } from '@/components/CategoryPieChart';
 import { evaluationService } from '@/services/rubrics';
 import { StudentProgressView } from '@/components/StudentProgressView';
-
-// Evidencias de entrega (foto/video) se obtienen vía URL firmada del backend
+import { progressService } from '@/services/rubrics';
 
 interface SubmissionOut {
     id: number;
@@ -81,6 +82,33 @@ const StudentProgressPage: React.FC = () => {
     const [evaluation, setEvaluation] = useState<any>(null);
     const [rubric, setRubric] = useState<any>(null);
     const [loadingEval, setLoadingEval] = useState(false);
+    const [showObservationForm, setShowObservationForm] = useState(false);
+    const [newObservationText, setNewObservationText] = useState('');
+    const [addingObservation, setAddingObservation] = useState(false);
+
+    // Puntajes por ejercicio (para mostrar aprobado/reprobado)
+    const [exerciseScoresMap, setExerciseScoresMap] = useState<Record<number, {
+        score: number | null;
+        maxScore: number | null;
+        percent: number | null;
+        passed: boolean;
+        categoryId: number | null;
+        categoryName: string | null;
+        categoryColor: string | null;
+    }>>({});
+
+    // Progreso por categoría
+    const [categoryProgress, setCategoryProgress] = useState<Record<string, {
+        categoryId: number | null;
+        categoryName: string;
+        categoryColor: string | null;
+        percent: number;
+        completed: number;
+        total: number;
+    }>>({});
+
+    const [overallPercent, setOverallPercent] = useState<number>(0);
+    const [pieChartData, setPieChartData] = useState<{ labels: string[]; weights: number[]; performances: number[]; colors: string[] } | null>(null);
 
     // Estados para filtros y paginación
     const [exerciseNameFilter, setExerciseNameFilter] = useState('');
@@ -184,6 +212,116 @@ const StudentProgressPage: React.FC = () => {
                     const text = await resExercises.text();
                     console.error('Error cargando ejercicios:', text);
                     setErrorMsg('No se pudieron cargar los ejercicios del estudiante.');
+                }
+
+                // Cargar progreso para obtener puntajes por ejercicio
+                try {
+                    const progress = await progressService.getStudentProgress(Number(studentId), foundCourse.id, token);
+                    if (progress?.exercise_scores) {
+                        const map: Record<number, {
+                            score: number | null;
+                            maxScore: number | null;
+                            percent: number | null;
+                            passed: boolean;
+                            categoryId: number | null;
+                            categoryName: string | null;
+                            categoryColor: string | null;
+                        }> = {};
+                        
+                        const categoryData: Record<string, {
+                            categoryId: number | null;
+                            categoryName: string;
+                            categoryColor: string | null;
+                            percent: number;
+                            completed: number;
+                            total: number;
+                            percentSum: number;
+                        }> = {};
+
+                        for (const ex of progress.exercise_scores) {
+                            const score = typeof ex.score === 'number' ? ex.score : null;
+                            const max = typeof ex.max_score === 'number' ? ex.max_score : null;
+                            const percent = score != null && max && max > 0 ? Math.round((score / max) * 100) : null;
+                            const passed = percent != null ? percent >= 70 : false;
+                            
+                            map[ex.course_exercise_id] = {
+                                score,
+                                maxScore: max,
+                                percent,
+                                passed,
+                                categoryId: ex.category_id || null,
+                                categoryName: ex.category_name || null,
+                                categoryColor: ex.category_color || null,
+                            };
+
+                            // Agrupar por categoría
+                            const categoryKey = ex.category_name || 'Sin categoría';
+                            if (!categoryData[categoryKey]) {
+                                categoryData[categoryKey] = {
+                                    categoryId: ex.category_id || null,
+                                    categoryName: categoryKey,
+                                    categoryColor: ex.category_color || null,
+                                    percent: 0,
+                                    completed: 0,
+                                    total: 0,
+                                    percentSum: 0,
+                                };
+                            }
+                            
+                            categoryData[categoryKey].total++;
+                            // Sumar el porcentaje para calcular el promedio después
+                            if (percent !== null) {
+                                categoryData[categoryKey].percentSum += percent;
+                            }
+                            // Contar como completado si tiene evaluación y porcentaje >= 70
+                            if (percent !== null && percent >= 70) {
+                                categoryData[categoryKey].completed++;
+                            }
+                        }
+
+                        // Calcular porcentaje general como promedio de todos los ejercicios
+                        const totalExercises = progress.exercise_scores.length;
+                        const totalPercentSum = Object.values(categoryData).reduce((sum, cat) => sum + cat.percentSum, 0);
+                        const generalPercent = totalExercises > 0 ? Math.round(totalPercentSum / totalExercises) : 0;
+                        setOverallPercent(generalPercent);
+
+                        // Calcular porcentaje por categoría como PROMEDIO de los porcentajes
+                        for (const categoryKey in categoryData) {
+                            const cat = categoryData[categoryKey];
+                            cat.percent = cat.total > 0 ? Math.round(cat.percentSum / cat.total) : 0;
+                        }
+
+                        setExerciseScoresMap(map);
+                        setCategoryProgress(categoryData);
+
+                        // Preparar datos para gráfica de pastel con dos capas
+                        const chartLabels = Object.values(categoryData).map(cat => cat.categoryName);
+                        const totalCategoriesExercises = Object.values(categoryData).reduce((sum, cat) => sum + cat.total, 0);
+                        
+                        // Calcular peso de cada categoría (proporción de ejercicios)
+                        const chartWeights = Object.values(categoryData).map(cat => (cat.total / totalCategoriesExercises) * 100);
+                        
+                        // El desempeño de cada categoría ya está calculado
+                        const chartPerformances = Object.values(categoryData).map(cat => cat.percent);
+                        
+                        const chartColors = Object.values(categoryData).map((cat, idx) => {
+                            if (cat.categoryColor) return cat.categoryColor;
+                            const colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#C9CBCF'];
+                            return colors[idx % colors.length];
+                        });
+                        
+                        const finalChartData = {
+                            labels: chartLabels,
+                            weights: chartWeights,
+                            performances: chartPerformances,
+                            colors: chartColors,
+                        };
+                        
+                        console.log('Chart data:', finalChartData);
+                        setPieChartData(finalChartData);
+                    }
+                } catch (err) {
+                    console.error('Error cargando progreso para puntajes:', err);
                 }
             } catch (err) {
                 console.error('Error de red:', err);
@@ -479,18 +617,97 @@ const StudentProgressPage: React.FC = () => {
                 </div>
             </div>
 
-            {/* Progreso general y estadísticas */}
-            {courseId && (
+            {/* Progreso por categoría */}
+            {courseId && Object.keys(categoryProgress).length > 0 && (
+                <div className="card mb-3">
+                    <h3 className="text-lg font-semibold m-0 mb-3">Desempeño por categoría</h3>
+                    
+                    {/* Grid: Gráfica de pastel y estadísticas */}
+                    <div className="grid">
+                        {/* Gráfica de pastel */}
+                        <div className="col-12 lg:col-5">
+                            <div className="surface-50 border-round-lg p-3">
+                                <h4 className="text-base font-semibold text-center m-0 mb-3">
+                                    Distribución por categoría
+                                </h4>
+                                {pieChartData && pieChartData.labels && pieChartData.labels.length > 0 ? (
+                                    <CategoryPieChart
+                                        labels={pieChartData.labels}
+                                        weights={pieChartData.weights}
+                                        performances={pieChartData.performances}
+                                        colors={pieChartData.colors}
+                                    />
+                                ) : (
+                                    <div style={{ height: '280px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999' }}>
+                                        Cargando datos...
+                                    </div>
+                                )}
+                                <div className="text-center border-top pt-3 mt-3">
+                                    <p className="text-xs text-600 m-0 mb-1">Porcentaje general</p>
+                                    <p className="text-2xl font-bold m-0" style={{ color: '#10b981' }}>
+                                        {overallPercent}%
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Detalles por categoría */}
+                        <div className="col-12 lg:col-7">
+                            <div className="flex flex-column gap-2">
+                                {Object.entries(categoryProgress)
+                                    .sort((a, b) => b[1].percent - a[1].percent)
+                                    .map(([categoryKey, catData]) => (
+                                        <div
+                                            key={categoryKey}
+                                            className="surface-50 border-round-lg p-3"
+                                        >
+                                            <div className="flex align-items-center justify-content-between mb-2">
+                                                <div className="flex align-items-center gap-2 flex-1">
+                                                    {catData.categoryColor && (
+                                                        <div
+                                                            style={{
+                                                                width: '10px',
+                                                                height: '10px',
+                                                                borderRadius: '50%',
+                                                                backgroundColor: catData.categoryColor,
+                                                                flexShrink: 0,
+                                                            }}
+                                                        />
+                                                    )}
+                                                    <span className="font-semibold text-sm">{catData.categoryName}</span>
+                                                </div>
+                                                <span className="font-bold text-sm" style={{ minWidth: '45px', textAlign: 'right' }}>
+                                                    {catData.percent}%
+                                                </span>
+                                            </div>
+                                            <ProgressBar
+                                                value={catData.percent}
+                                                showValue={false}
+                                                style={{ height: '6px', borderRadius: '3px' }}
+                                            />
+                                            <p className="text-xs text-600 m-0 mt-1">
+                                                {catData.completed} / {catData.total}
+                                            </p>
+                                        </div>
+                                    ))}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Progreso general alternativo si no hay datos de categoría */}
+            {courseId && Object.keys(categoryProgress).length === 0 && (
                 <div className="card mb-3">
                     <h3 className="text-lg font-semibold m-0 mb-3">Progreso general del estudiante</h3>
                     <StudentProgressView studentId={Number(studentId)} courseId={courseId} />
                 </div>
             )}
 
-            {/* Lista de ejercicios */}
+            {/* Lista de ejercicios agrupados por categoría */}
             <div className="card">
                 <div className="flex justify-content-between align-items-center mb-3">
-                    <h3 className="text-lg font-semibold m-0">Todos los ejercicios</h3>
+                    <h3 className="text-lg font-semibold m-0">Desempeño por categoría</h3>
                     {exercises.length > 0 && (
                         <Button
                             label={showFilters ? 'Ocultar filtros' : 'Mostrar filtros'}
@@ -706,57 +923,132 @@ const StudentProgressPage: React.FC = () => {
                                                 : 'No hay ejercicios asignados en este curso.'}
                                         </p>
                                     ) : (
-                                        <div className="flex flex-column gap-2">
-                                            {paginatedExercises.map((ex) => {
-                                                const due = ex.due_date ? new Date(ex.due_date) : null;
-                                                const isLate = ex.status === 'PENDING' && due && due < now;
+                                        <div className="flex flex-column gap-3">
+                                            {(() => {
+                                                // Agrupar ejercicios por categoría
+                                                const groupedByCategory: Record<string, typeof paginatedExercises> = {};
+                                                for (const ex of paginatedExercises) {
+                                                    const scoreInfo = exerciseScoresMap[ex.course_exercise_id];
+                                                    const categoryName = scoreInfo?.categoryName || 'Sin categoría';
+                                                    if (!groupedByCategory[categoryName]) {
+                                                        groupedByCategory[categoryName] = [];
+                                                    }
+                                                    groupedByCategory[categoryName].push(ex);
+                                                }
 
-                                                return (
-                                                    <div
-                                                        key={ex.course_exercise_id}
-                                                        className="surface-50 border-round-lg p-3 flex justify-content-between align-items-center gap-3"
-                                                    >
-                                                        <div className="flex-1 min-w-0">
-                                                            <div className="flex align-items-center gap-2 mb-1">
-                                                                <p className="m-0 font-semibold text-base">{ex.exercise_name}</p>
-                                                                {statusTag(ex.status, ex.due_date)}
+                                                return Object.entries(groupedByCategory).map(([categoryName, categoryExercises]) => {
+                                                    const categoryInfo = categoryProgress[categoryName];
+                                                    const firstExercise = categoryExercises[0];
+                                                    const scoreInfo = exerciseScoresMap[firstExercise.course_exercise_id];
+                                                    const categoryColor = scoreInfo?.categoryColor || '#6366f1';
+
+                                                    return (
+                                                        <div
+                                                            key={categoryName}
+                                                            className="surface-card border-round-lg overflow-hidden"
+                                                            style={{ border: `2px solid ${categoryColor}40` }}
+                                                        >
+                                                            {/* Header de categoría */}
+                                                            <div
+                                                                className="p-3 flex justify-content-between align-items-center"
+                                                                style={{ backgroundColor: `${categoryColor}15`, borderLeft: `4px solid ${categoryColor}` }}
+                                                            >
+                                                                <div className="flex align-items-center gap-2">
+                                                                    <div
+                                                                        style={{
+                                                                            width: '12px',
+                                                                            height: '12px',
+                                                                            borderRadius: '50%',
+                                                                            backgroundColor: categoryColor,
+                                                                        }}
+                                                                    />
+                                                                    <h4 className="m-0 font-semibold">{categoryName}</h4>
+                                                                </div>
+                                                                <div className="flex gap-3 align-items-center">
+                                                                    {categoryInfo && (
+                                                                        <>
+                                                                            <span className="text-sm font-medium">
+                                                                                {categoryInfo.completed} / {categoryInfo.total}
+                                                                            </span>
+                                                                            <Tag
+                                                                                value={`${categoryInfo.percent}%`}
+                                                                                severity={categoryInfo.percent >= 70 ? 'success' : categoryInfo.percent >= 40 ? 'warning' : 'danger'}
+                                                                            />
+                                                                        </>
+                                                                    )}
+                                                                </div>
                                                             </div>
-                                                            <div className="flex flex-wrap gap-3 text-xs text-600">
-                                                                {ex.due_date && (
-                                                                    <span>
-                                                                        <i className="pi pi-calendar mr-1" />
-                                                                        Fecha límite: {new Date(ex.due_date).toLocaleString()}
-                                                                    </span>
-                                                                )}
-                                                                {ex.submitted_at && (
-                                                                    <span>
-                                                                        <i className="pi pi-check mr-1" />
-                                                                        Entregado: {new Date(ex.submitted_at).toLocaleString()}
-                                                                    </span>
-                                                                )}
+
+                                                            {/* Lista de ejercicios de la categoría */}
+                                                            <div className="p-3 flex flex-column gap-2">
+                                                                {categoryExercises.map((ex) => {
+                                                                    const due = ex.due_date ? new Date(ex.due_date) : null;
+                                                                    const isLate = ex.status === 'PENDING' && due && due < now;
+                                                                    const scoreInfo = exerciseScoresMap[ex.course_exercise_id];
+
+                                                                    return (
+                                                                        <div
+                                                                            key={ex.course_exercise_id}
+                                                                            className="surface-50 border-round-lg p-2 flex justify-content-between align-items-center gap-3 text-sm"
+                                                                        >
+                                                                            <div className="flex-1 min-w-0">
+                                                                                <div className="flex align-items-center gap-2 mb-1">
+                                                                                    <p className="m-0 font-semibold">{ex.exercise_name}</p>
+                                                                                    {statusTag(ex.status, ex.due_date)}
+                                                                                    {scoreInfo && scoreInfo.percent != null && (
+                                                                                        <Tag
+                                                                                            value={`${scoreInfo.passed ? 'Aprobado' : 'Reprobado'} ${scoreInfo.percent}%`}
+                                                                                            severity={scoreInfo.passed ? 'success' : 'danger'}
+                                                                                        />
+                                                                                    )}
+                                                                                </div>
+                                                                                <div className="flex flex-wrap gap-3 text-xs text-600">
+                                                                                    {ex.due_date && (
+                                                                                        <span>
+                                                                                            <i className="pi pi-calendar mr-1" />
+                                                                                            {new Date(ex.due_date).toLocaleString()}
+                                                                                        </span>
+                                                                                    )}
+                                                                                    {ex.submitted_at && (
+                                                                                        <span>
+                                                                                            <i className="pi pi-check mr-1" />
+                                                                                            {new Date(ex.submitted_at).toLocaleString()}
+                                                                                        </span>
+                                                                                    )}
+                                                                                    {scoreInfo && scoreInfo.score != null && scoreInfo.maxScore != null && (
+                                                                                        <span>
+                                                                                            <i className="pi pi-chart-line mr-1" />
+                                                                                            {scoreInfo.score} / {scoreInfo.maxScore}
+                                                                                        </span>
+                                                                                    )}
+                                                                                </div>
+                                                                            </div>
+                                                                            <div>
+                                                                                {ex.status === 'DONE' ? (
+                                                                                    <Button
+                                                                                        icon="pi pi-eye"
+                                                                                        label="Ver"
+                                                                                        className="p-button-sm p-button-text"
+                                                                                        onClick={() => {
+                                                                                            setSelectedExercise(ex);
+                                                                                            setSubmissionDetailVisible(true);
+                                                                                        }}
+                                                                                    />
+                                                                                ) : (
+                                                                                    <Tag
+                                                                                        value="Sin entrega"
+                                                                                        severity={isLate ? 'danger' : 'warning'}
+                                                                                    />
+                                                                                )}
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                })}
                                                             </div>
                                                         </div>
-                                                        <div>
-                                                            {ex.status === 'DONE' ? (
-                                                                <Button
-                                                                    icon="pi pi-eye"
-                                                                    label="Ver entrega"
-                                                                    className="p-button-sm"
-                                                                    onClick={() => {
-                                                                        setSelectedExercise(ex);
-                                                                        setSubmissionDetailVisible(true);
-                                                                    }}
-                                                                />
-                                                            ) : (
-                                                                <Tag
-                                                                    value="Sin entrega"
-                                                                    severity={isLate ? 'danger' : 'warning'}
-                                                                />
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })}
+                                                    );
+                                                });
+                                            })()}
                                         </div>
                                     )}
 
@@ -879,32 +1171,72 @@ const StudentProgressPage: React.FC = () => {
                                     label="Agregar"
                                     className="p-button-text p-button-sm"
                                     disabled={loadingEval || !submissionDetail}
-                                    onClick={async () => {
-                                        if (!token || !submissionDetail) return;
-                                        const text = window.prompt('Escribe la observación');
-                                        if (!text || !text.trim()) return;
-                                        try {
-                                            const res = await fetch(`${API_BASE}/observations/`, {
-                                                method: 'POST',
-                                                headers: {
-                                                    'Content-Type': 'application/json',
-                                                    Authorization: `Bearer ${token}`,
-                                                },
-                                                body: JSON.stringify({ submission_id: submissionDetail.submission.id, text }),
-                                            });
-                                            if (!res.ok) {
-                                                const t = await res.text();
-                                                throw new Error(t || 'No se pudo agregar');
-                                            }
-                                            const created = await res.json();
-                                            setObservations((prev) => [...prev, created]);
-                                        } catch (err) {
-                                            console.error('Error agregando observación', err);
-                                            setSubmissionDetailError('No se pudo agregar la observación');
-                                        }
-                                    }}
+                                    onClick={() => setShowObservationForm(true)}
                                 />
                             </div>
+                            
+                            {/* Formulario de nueva observación */}
+                            {showObservationForm && (
+                                <div className="mb-3 p-3 surface-100 border-round">
+                                    <InputTextarea
+                                        value={newObservationText}
+                                        onChange={(e) => setNewObservationText(e.target.value)}
+                                        placeholder="Escribe una observación sobre el desempeño del estudiante..."
+                                        rows={3}
+                                        className="w-full mb-2"
+                                    />
+                                    <div className="flex gap-2 justify-content-end">
+                                        <Button
+                                            label="Cancelar"
+                                            icon="pi pi-times"
+                                            className="p-button-text p-button-sm"
+                                            onClick={() => {
+                                                setShowObservationForm(false);
+                                                setNewObservationText('');
+                                            }}
+                                            disabled={addingObservation}
+                                        />
+                                        <Button
+                                            label="Guardar"
+                                            icon="pi pi-check"
+                                            className="p-button-sm"
+                                            onClick={async () => {
+                                                if (!token || !submissionDetail || !newObservationText.trim()) return;
+                                                setAddingObservation(true);
+                                                try {
+                                                    const res = await fetch(`${API_BASE}/observations/`, {
+                                                        method: 'POST',
+                                                        headers: {
+                                                            'Content-Type': 'application/json',
+                                                            Authorization: `Bearer ${token}`,
+                                                        },
+                                                        body: JSON.stringify({ 
+                                                            submission_id: submissionDetail.submission.id, 
+                                                            text: newObservationText.trim() 
+                                                        }),
+                                                    });
+                                                    if (!res.ok) {
+                                                        const t = await res.text();
+                                                        throw new Error(t || 'No se pudo agregar');
+                                                    }
+                                                    const created = await res.json();
+                                                    setObservations((prev) => [...prev, created]);
+                                                    setNewObservationText('');
+                                                    setShowObservationForm(false);
+                                                } catch (err) {
+                                                    console.error('Error agregando observación', err);
+                                                    setSubmissionDetailError('No se pudo agregar la observación');
+                                                } finally {
+                                                    setAddingObservation(false);
+                                                }
+                                            }}
+                                            loading={addingObservation}
+                                            disabled={!newObservationText.trim()}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+                            
                             {loadingEval ? (
                                 <p className="text-sm text-600">Cargando observaciones...</p>
                             ) : observations && observations.length > 0 ? (

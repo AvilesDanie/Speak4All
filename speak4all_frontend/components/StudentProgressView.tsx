@@ -89,9 +89,26 @@ export function StudentProgressView({ studentId, courseId }: StudentProgressView
                     <p className="font-bold text-blue-600">
                       {exercise.score || 0} / {exercise.max_score || 0}
                     </p>
-                    <p className="text-sm text-gray-600">
-                      {exercise.max_score ? Math.round((exercise.score || 0) / exercise.max_score * 100) : 0}%
-                    </p>
+                    <div className="flex justify-end gap-2 items-center text-sm text-gray-600">
+                      <span>
+                        {exercise.max_score
+                          ? Math.round((exercise.score || 0) / exercise.max_score * 100)
+                          : 0}%
+                      </span>
+                      {exercise.max_score ? (
+                        <span
+                          className={`px-2 py-1 rounded text-white text-xs font-semibold ${
+                            (exercise.score || 0) / exercise.max_score >= 0.7
+                              ? 'bg-green-500'
+                              : 'bg-red-500'
+                          }`}
+                        >
+                          {(exercise.score || 0) / exercise.max_score >= 0.7
+                            ? 'Aprobado'
+                            : 'Reprobado'}
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
 

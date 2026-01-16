@@ -8,9 +8,11 @@ import { Accordion, AccordionTab } from 'primereact/accordion';
 import { InputNumber } from 'primereact/inputnumber';
 import { InputTextarea } from 'primereact/inputtextarea';
 import { Message } from 'primereact/message';
+import { Dropdown } from 'primereact/dropdown';
 import { getMyExercises } from '@/services/exercises';
 import { publishCourseExercise } from '@/services/courses';
 import { rubricService } from '@/services/rubrics';
+import { categoryService } from '@/services/categories';
 
 interface PublishExerciseDialogProps {
     visible: boolean;
@@ -43,6 +45,14 @@ const PublishExerciseDialog: React.FC<PublishExerciseDialogProps> = ({
     const [dueDate, setDueDate] = useState<string>('');
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    
+    // Categorías
+    const [categories, setCategories] = useState<Array<{ id: number; name: string; color?: string }>>([]);
+    const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
+    const [newCategoryName, setNewCategoryName] = useState<string>('');
+    const [newCategoryColor, setNewCategoryColor] = useState<string>('');
+    const [showNewCategoryForm, setShowNewCategoryForm] = useState(false);
+    
     const [configureRubric, setConfigureRubric] = useState(false);
     const [rubricCriteria, setRubricCriteria] = useState<Array<{
         name: string;
@@ -66,11 +76,15 @@ const PublishExerciseDialog: React.FC<PublishExerciseDialogProps> = ({
         const load = async () => {
             try {
                 setLoading(true);
-                const data = await getMyExercises(token, 1, 1000);
-                setExercises(data.items);
+                const [exercisesData, categoriesData] = await Promise.all([
+                    getMyExercises(token, 1, 1000),
+                    categoryService.listCategories(token),
+                ]);
+                setExercises(exercisesData.items);
+                setCategories(categoriesData);
             } catch (err: any) {
-                console.error('Error obteniendo ejercicios:', err);
-                setError(err?.message || 'No se pudieron obtener los ejercicios.');
+                console.error('Error obteniendo datos:', err);
+                setError(err?.message || 'No se pudieron obtener los datos.');
             } finally {
                 setLoading(false);
             }
@@ -86,18 +100,53 @@ const PublishExerciseDialog: React.FC<PublishExerciseDialogProps> = ({
         setAvailableExercises(filtered);
     }, [exercises, publishedExerciseIds]);
 
+    const handleAddCategory = async () => {
+        if (!newCategoryName.trim()) {
+            setError('El nombre de la categoría es requerido.');
+            return;
+        }
+        try {
+            const newCategory = await categoryService.createCategory({
+                name: newCategoryName,
+                color: newCategoryColor,
+            }, token);
+            setCategories([...categories, newCategory]);
+            setSelectedCategoryId(newCategory.id);
+            setNewCategoryName('');
+            setNewCategoryColor('');
+            setShowNewCategoryForm(false);
+        } catch (err: any) {
+            console.error('Error creando categoría:', err);
+            setError('No se pudo crear la categoría.');
+        }
+    };
+
     const handlePublish = async () => {
         if (!selectedId) {
             setError('Selecciona un ejercicio.');
+            return;
+        }
+        if (!selectedCategoryId) {
+            setError('Selecciona una categoría. Es obligatorio.');
+            return;
+        }
+        if (!configureRubric || rubricCriteria.length === 0) {
+            setError('Configura una rúbrica de evaluación. Es obligatorio.');
             return;
         }
         setSubmitting(true);
         setError(null);
         try {
             // Publicar ejercicio
-            const published = await publishCourseExercise(token, courseId, selectedId, dueDate ? new Date(dueDate).toISOString() : null);
+            const published = await publishCourseExercise(
+                token, 
+                courseId, 
+                selectedId, 
+                dueDate ? new Date(dueDate).toISOString() : null,
+                selectedCategoryId
+            );
             
-            // Crear rúbrica si está configurada
+            // Crear rúbrica
             if (configureRubric && rubricCriteria.length > 0) {
                 try {
                     // Crear rúbrica vacía (sin criterios por defecto)
@@ -129,6 +178,7 @@ const PublishExerciseDialog: React.FC<PublishExerciseDialogProps> = ({
             onHide();
             setSelectedId(null);
             setDueDate('');
+            setSelectedCategoryId(null);
             setConfigureRubric(false);
         } catch (err: any) {
             console.error('Error publicando ejercicio:', err);
@@ -151,6 +201,15 @@ const PublishExerciseDialog: React.FC<PublishExerciseDialogProps> = ({
                 icon="pi pi-share-alt"
                 onClick={handlePublish}
                 loading={submitting}
+                disabled={!selectedId || !selectedCategoryId || !configureRubric || rubricCriteria.length === 0}
+                tooltip={
+                    !selectedId ? "Selecciona un ejercicio" :
+                    !selectedCategoryId ? "Selecciona una categoría" :
+                    !configureRubric ? "Configura una rúbrica" :
+                    rubricCriteria.length === 0 ? "Agrega al menos un criterio a la rúbrica" :
+                    ""
+                }
+                tooltipOptions={{ position: "top" }}
             />
         </div>
     );
@@ -222,6 +281,62 @@ const PublishExerciseDialog: React.FC<PublishExerciseDialogProps> = ({
                         </small>
                     </div>
 
+                    <div>
+                        <label className="text-sm text-700 mb-1 block">
+                            Categoría <span className="text-red-500">*</span>
+                        </label>
+                        {!showNewCategoryForm ? (
+                            <div className="flex gap-2">
+                                <Dropdown
+                                    value={selectedCategoryId}
+                                    onChange={(e) => setSelectedCategoryId(e.value)}
+                                    options={categories.map(c => ({ label: c.name, value: c.id }))}
+                                    placeholder="Seleccionar categoría"
+                                    className="flex-1"
+                                />
+                                <Button
+                                    icon="pi pi-plus"
+                                    className="p-button-outlined p-button-sm"
+                                    onClick={() => setShowNewCategoryForm(true)}
+                                    title="Crear nueva categoría"
+                                />
+                            </div>
+                        ) : (
+                            <div className="flex flex-column gap-2 p-3 surface-50 border-round">
+                                <InputText
+                                    value={newCategoryName}
+                                    onChange={(e) => setNewCategoryName(e.target.value)}
+                                    placeholder="Nombre de la categoría"
+                                />
+                                <InputText
+                                    value={newCategoryColor}
+                                    onChange={(e) => setNewCategoryColor(e.target.value)}
+                                    placeholder="Color (ej: #FF5733)"
+                                    type="color"
+                                    style={{ height: '40px' }}
+                                />
+                                <div className="flex gap-2">
+                                    <Button
+                                        label="Crear"
+                                        icon="pi pi-check"
+                                        className="p-button-sm flex-1"
+                                        onClick={handleAddCategory}
+                                    />
+                                    <Button
+                                        label="Cancelar"
+                                        icon="pi pi-times"
+                                        className="p-button-text p-button-sm flex-1"
+                                        onClick={() => {
+                                            setShowNewCategoryForm(false);
+                                            setNewCategoryName('');
+                                            setNewCategoryColor('');
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
                     <div className="flex align-items-center gap-2">
                         <input
                             type="checkbox"
@@ -231,7 +346,7 @@ const PublishExerciseDialog: React.FC<PublishExerciseDialogProps> = ({
                             className="p-checkbox"
                         />
                         <label htmlFor="config-rubric" className="text-sm font-medium">
-                            Configurar rúbrica de evaluación
+                            Configurar rúbrica de evaluación <span className="text-red-500">*</span>
                         </label>
                     </div>
 
