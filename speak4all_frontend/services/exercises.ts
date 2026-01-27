@@ -1,6 +1,6 @@
 // Centralized API service for exercise-related endpoints
 
-import { API_BASE, fetchJSON } from './apiClient';
+import { buildQuery, fetchJSON } from './apiClient';
 
 // ==== PAGINATION ====
 export interface PaginatedResponse<T> {
@@ -61,17 +61,11 @@ export async function assignExerciseFolder(
   token: string,
   folderId: number | null
 ): Promise<ExerciseOut> {
-  const url = new URL(`${API_BASE}/exercises/${exerciseId}/folder`);
-  if (folderId !== null) url.searchParams.set('folder_id', String(folderId));
-  const res = await fetch(url.toString(), {
+  const query = folderId !== null ? buildQuery({ folder_id: folderId }) : '';
+  return fetchJSON<ExerciseOut>(`/exercises/${exerciseId}/folder${query}`, {
+    token,
     method: 'PATCH',
-    headers: { Authorization: `Bearer ${token}` },
   });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`API /exercises/${exerciseId}/folder ${res.status}: ${text}`);
-  }
-  return res.json();
 }
 
 export async function createFolder(

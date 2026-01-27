@@ -42,7 +42,18 @@ export function useWebSocket({ courseId, token, onMessage, enabled = true }: Use
       wsRef.current.close();
     }
 
-    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000';
+    const wsUrl = (() => {
+      // En producción o si está configurado, usar la variable de entorno
+      if (process.env.NEXT_PUBLIC_WS_URL) return process.env.NEXT_PUBLIC_WS_URL;
+      
+      // En desarrollo, conectar directamente al backend en el puerto 8000
+      if (typeof window !== 'undefined') {
+        const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+        const host = window.location.hostname; // solo el hostname, sin puerto
+        return `${protocol}://${host}:8000`;
+      }
+      return 'ws://localhost:8000';
+    })();
     const url = `${wsUrl}/ws/courses/${courseId}?token=${encodeURIComponent(token)}`;
 
     try {

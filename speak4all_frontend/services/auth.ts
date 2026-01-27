@@ -1,4 +1,4 @@
-import { API_BASE, fetchJSON } from './apiClient';
+import { fetchJSON } from './apiClient';
 
 export type Role = 'THERAPIST' | 'STUDENT';
 

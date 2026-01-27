@@ -32,12 +32,6 @@ export default function Dashboard() {
 
     useEffect(() => {
         if (!token) return;
-        const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL;
-        if (!apiBase) {
-            setErrorMsg('Configura NEXT_PUBLIC_API_BASE_URL para cargar datos del dashboard.');
-            setLoadingData(false);
-            return;
-        }
 
         const colors = ['#4f46e5', '#10b981', '#f59e0b', '#8b5cf6', '#6366f1', '#22c55e'];
 

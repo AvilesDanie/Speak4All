@@ -1,53 +1,152 @@
-# Speak4All
+# 🎙️ Speak4All
 
-Plataforma de terapia del habla basada en IA.
+**Plataforma inteligente de terapia del habla** - Ayuda a niños y adultos a mejorar sus habilidades de comunicación mediante ejercicios personalizados generados con IA.
 
-## Requisitos
+## ✨ Características
+
+- 🤖 **Generación de ejercicios con IA** usando OpenAI GPT
+- 🎧 **Síntesis de voz** para ejercicios de audición
+- 📊 **Evaluación automática** con rúbricas personalizables
+- 👥 **Gestión de estudiantes y cursos** para terapeutas
+- 📈 **Dashboard de progreso** con métricas detalladas
+- 🔐 **Autenticación con Google OAuth**
+- ☁️ **Almacenamiento en Google Cloud Storage**
+- 🌐 **WebSocket en tiempo real** para actualizaciones
+
+## 🚀 Inicio Rápido
+
+### Opción 1: Usar imágenes de Docker Hub (Recomendado)
+
+```bash
+# 1. Clonar el repositorio
+git clone https://github.com/tu-usuario/speak4all.git
+cd speak4all
+
+# 2. Configurar variables de entorno
+cp .env.example .env
+# Edita .env con tus credenciales
+
+# 3. Agregar credenciales de Google Cloud
+# Coloca tu archivo JSON en gcp-key.json/
+
+# 4. Iniciar con imágenes pre-construidas
+docker compose -f docker-compose.hub.yml up -d
+```
+
+### Opción 2: Construir localmente
+
+```bash
+# 1-3. Igual que arriba
+
+# 4. Construir e iniciar
+docker compose up -d --build
+```
+
+## 📋 Requisitos
+## 📋 Requisitos
+
 - Docker y Docker Compose
+- Credenciales de:
+  - [OpenAI API](https://platform.openai.com/)
+  - [Google Cloud Storage](https://cloud.google.com/storage)
+  - [Google OAuth](https://console.cloud.google.com/)
 
-## Pasos Rápidos
+## 📖 Documentación Completa
 
-### 1. Construir las imágenes
+Para instrucciones detalladas de configuración y despliegue, consulta:
+
+👉 **[DOCKER_DEPLOYMENT.md](DOCKER_DEPLOYMENT.md)** - Guía completa de despliegue
+
+## 🌐 Acceso
+
+Una vez iniciado, accede a:
+
+- **Frontend**: http://localhost:3000
+- **Backend API**: http://localhost:8000
+- **API Docs (Swagger)**: http://localhost:8000/docs
+
+## 🛠️ Comandos Útiles
 
 ```bash
-docker-compose build
+# Ver logs
+docker compose logs -f
+
+# Reiniciar un servicio
+docker compose restart frontend
+
+# Detener todo
+docker compose down
+
+# Reconstruir después de cambios
+docker compose up -d --build
+
+# Ejecutar migraciones manualmente
+docker compose exec api alembic upgrade head
 ```
 
-### 2. Ejecutar localmente para testing
+## 📦 Subir a Docker Hub
 
 ```bash
-docker-compose up -d
+# 1. Construir las imágenes con tu usuario
+docker build -t tuusuario/speak4all-backend:latest ./speak4all_backend
+docker build -t tuusuario/speak4all-frontend:latest ./speak4all_frontend
+
+# 2. Iniciar sesión en Docker Hub
+docker login
+
+# 3. Subir las imágenes
+docker push tuusuario/speak4all-backend:latest
+docker push tuusuario/speak4all-frontend:latest
+
+# 4. Actualiza docker-compose.hub.yml con tu usuario
+# Luego otros pueden usar: docker compose -f docker-compose.hub.yml up -d
 ```
 
-Accede a:
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:8000/api
-- Swagger docs: http://localhost:8000/docs
+## 🏗️ Arquitectura
 
-Detener:
-```bash
-docker-compose down
+```
+┌─────────────────┐      ┌──────────────────┐      ┌─────────────────┐
+│   Next.js       │─────▶│   FastAPI        │─────▶│   PostgreSQL    │
+│   (Frontend)    │      │   (Backend)      │      │   (Database)    │
+│   Port 3000     │      │   Port 8000      │      │   Port 5432     │
+└─────────────────┘      └──────────────────┘      └─────────────────┘
+         │                        │
+         │                        │
+         └────────────────────────┴───────────▶ Google Cloud Storage
+                                                (Media files)
 ```
 
-### 3. Subir a Docker Hub
+## 🔐 Seguridad
 
-```bash
-# Backend
-docker build -t tunombre/speak4all-backend:1.0 ./speak4all_backend
-docker push tunombre/speak4all-backend:1.0
+⚠️ **IMPORTANTE**:
+- El archivo `.env` contiene información sensible - **NO lo subas a GitHub**
+- Las credenciales de GCP (`gcp-key.json/`) son privadas - **NO las compartas**
+- Genera secrets fuertes y únicos para producción
+- Usa HTTPS en producción
+- Configura CORS apropiadamente
 
-# Frontend
-docker build -t tunombre/speak4all-frontend:1.0 ./speak4all_frontend
-docker push tunombre/speak4all-frontend:1.0
-```
+## 🤝 Contribuir
 
-### 4. Desplegar en Google Cloud
+1. Fork el proyecto
+2. Crea una rama (`git checkout -b feature/nueva-funcionalidad`)
+3. Commit tus cambios (`git commit -m 'Agregar nueva funcionalidad'`)
+4. Push a la rama (`git push origin feature/nueva-funcionalidad`)
+5. Abre un Pull Request
 
-```bash
-# Backend en Cloud Run
-gcloud run deploy speak4all-backend \
-  --image gcr.io/tu-proyecto/speak4all-backend:1.0 \
-  --platform managed \
+## 📄 Licencia
+
+Este proyecto está bajo la licencia MIT. Ver archivo `LICENSE` para más detalles.
+
+## 👥 Autores
+
+- Tu Nombre - [@tuusuario](https://github.com/tuusuario)
+
+## 🙏 Agradecimientos
+
+- OpenAI por GPT y TTS
+- PrimeReact por los componentes UI
+- FastAPI por el framework backend
+- Next.js por el framework frontend
   --region us-central1 \
   --set-env-vars DATABASE_URL=tu-cloudsql-url,JWT_SECRET=tu-secret,OPENAI_API_KEY=tu-key
 

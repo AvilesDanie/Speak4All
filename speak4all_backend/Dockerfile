@@ -22,12 +22,15 @@ RUN python -m pip install --upgrade pip setuptools wheel && \
 # Copiar el código
 COPY . .
 
-# Cloud Run suele usar 8080, pero lo importante es usar $PORT
-ENV PORT=8080
+# Copiar y dar permisos al script de entrypoint
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
-# (EXPOSE es opcional para Cloud Run, pero no molesta)
-EXPOSE 8080
+# Puerto del backend
+ENV PORT=8000
 
-# Importante: usar el puerto que viene en la variable $PORT
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
+EXPOSE 8000
+
+# Usar el script de entrypoint que ejecuta migraciones
+ENTRYPOINT ["/entrypoint.sh"]
 

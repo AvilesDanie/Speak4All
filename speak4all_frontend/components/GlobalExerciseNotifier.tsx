@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { useWebSocket, WebSocketMessage } from '@/hooks/useWebSocket';
 import { useExerciseNotifications } from '@/contexts/ExerciseNotificationContext';
 import { BackendUser } from '@/services/auth';
+import { fetchJSON } from '@/services/apiClient';
 
 /**
  * Componente global que escucha notificaciones de ejercicios publicados/eliminados
@@ -46,22 +47,13 @@ export function GlobalExerciseNotifier() {
             }
             
             // Cargar cursos del usuario para conectar a sus WebSockets
-            const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
-            fetch(`${apiBase}/courses/my`, {
-                headers: { Authorization: `Bearer ${storedToken}` },
+            fetchJSON('/courses/my', {
+                token: storedToken,
+                method: 'GET',
             })
-                .then(res => {
-                    if (res.ok) {
-                        return res.json();
-                    }
-                    console.error('[GlobalExerciseNotifier] Error loading courses:', res.status);
-                    return null;
-                })
                 .then(data => {
-                    if (data) {
-                        const coursesData = data.items || data;
-                        setCourses(coursesData);
-                    }
+                    const coursesData = (data as any).items || data;
+                    setCourses(coursesData || []);
                 })
                 .catch(err => {
                     console.error('[GlobalExerciseNotifier] ❌ Error fetching courses:', err);

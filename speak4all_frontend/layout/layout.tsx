@@ -13,6 +13,7 @@ import AppFooter from './AppFooter';
 import type { AppTopbarRef, ChildContainerProps } from '@/types';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import '@/styles/theme-fixes.scss';
 
 const Layout = (props: ChildContainerProps) => {
     const { layoutConfig, layoutState, setLayoutState, setLayoutConfig, isSlim, isSlimPlus, isHorizontal, isDesktop, isSidebarActive } = useContext(LayoutContext);

@@ -1,6 +1,6 @@
 // Centralized API service for courses-related endpoints
 
-import { API_BASE, fetchJSON } from './apiClient';
+import { fetchJSON } from './apiClient';
 import type { ExerciseOut } from './exercises';
 
 // ==== PAGINATION ====

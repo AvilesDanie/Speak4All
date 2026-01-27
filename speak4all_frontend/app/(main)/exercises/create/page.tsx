@@ -582,8 +582,8 @@ const CreateExercisePage: React.FC = () => {
                                             minHeight: '12rem',
                                             maxHeight: '20rem',
                                             overflowY: 'auto',
-                                            background: '#f9fafb',
                                         }}
+                                        className="surface-ground"
                                     />
                                     <small className="text-600">
                                         Es el texto que verá el estudiante. Se genera

@@ -1,7 +1,7 @@
 // Generic API client helpers
-// Centraliza la base y manejo de headers. Usa NEXT_PUBLIC_API_BASE_URL si está definida.
+// Centraliza la base y manejo de headers usando la API interna de Next.
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL;
+export const API_BASE = '/api/backend';
 
 export interface RequestOptions extends RequestInit {
   token?: string | null;

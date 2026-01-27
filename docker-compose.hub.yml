@@ -1,0 +1,68 @@
+# Docker Compose usando imágenes de Docker Hub
+# Para usar este archivo: docker compose -f docker-compose.hub.yml up -d
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: speak4all_db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    # Cambia 'zuix1384' por tu usuario de Docker Hub
+    image: zuix1384/speak4all-backend:latest
+    container_name: speak4all_api
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ALGORITHM: ${JWT_ALGORITHM}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL: ${OPENAI_MODEL}
+      OPENAI_TTS_MODEL: ${OPENAI_TTS_MODEL}
+      TTS_VOICE_NAME: ${TTS_VOICE_NAME}
+      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS}
+      GCP_BUCKET_NAME: ${GCP_BUCKET_NAME}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ./speak4all_backend/media:/code/media
+      - ./gcp-key.json:/code/gcp-key.json:ro
+    restart: unless-stopped
+
+  frontend:
+    # Cambia 'zuix1384' por tu usuario de Docker Hub
+    image: zuix1384/speak4all-frontend:latest
+    container_name: speak4all_frontend
+    depends_on:
+      - api
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL}
+      NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL}
+      NEXTAUTH_URL: ${NEXTAUTH_URL}
+      NEXTAUTH_URL_INTERNAL: http://frontend:3000
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

@@ -1,0 +1,35 @@
+// Fixes para campos readonly y disabled en modo oscuro
+
+// InputTextarea y InputText con readonly
+.p-inputtextarea[readonly],
+.p-inputtext[readonly] {
+    background-color: var(--surface-ground) !important;
+    color: var(--text-color) !important;
+    cursor: not-allowed;
+    opacity: 0.8;
+}
+
+// InputTextarea y InputText con disabled
+.p-inputtextarea:disabled,
+.p-inputtext:disabled {
+    background-color: var(--surface-100) !important;
+    color: var(--text-color-secondary) !important;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+// Asegurar que los componentes con la clase surface-ground usen el color correcto
+.surface-ground {
+    background-color: var(--surface-ground) !important;
+    color: var(--text-color) !important;
+}
+
+// Dropdown disabled
+.p-dropdown:not(.p-disabled):hover {
+    border-color: var(--primary-color);
+}
+
+.p-dropdown.p-disabled {
+    background-color: var(--surface-100) !important;
+    opacity: 0.6;
+}
