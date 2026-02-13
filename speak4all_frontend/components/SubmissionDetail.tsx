@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { mediaPathToUrl } from '@/services/apiClient';
 import { progressService } from '@/services/rubrics';
 
 interface SubmissionDetailProps {
@@ -36,15 +37,17 @@ export function SubmissionDetail({ submissionId }: SubmissionDetailProps) {
   if (!data) return <div className="p-4">No se encontraron datos</div>;
 
   const { submission, student, evaluation, observations, rubric } = data;
+  const studentAvatarUrl = mediaPathToUrl(student?.avatar_path);
+  const submissionMediaUrl = mediaPathToUrl(submission?.media_path);
 
   return (
     <div className="space-y-6">
       {/* Datos del estudiante */}
       <div className="p-4 bg-white border border-gray-200 rounded-lg">
         <div className="flex items-center gap-4">
-          {student.avatar_path && (
+          {studentAvatarUrl && (
             <img
-              src={student.avatar_path}
+              src={studentAvatarUrl}
               alt={student.full_name}
               className="w-12 h-12 rounded-full"
             />
@@ -59,9 +62,9 @@ export function SubmissionDetail({ submissionId }: SubmissionDetailProps) {
       {/* Video/Media */}
       <div className="p-4 bg-white border border-gray-200 rounded-lg">
         <h3 className="font-semibold mb-3">Evidencia</h3>
-        {submission.media_path && (
+        {submissionMediaUrl && (
           <video
-            src={submission.media_path}
+            src={submissionMediaUrl}
             controls
             className="w-full max-h-96 rounded bg-black"
           />

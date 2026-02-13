@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import io
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -12,6 +12,7 @@ from .. import models, schemas
 from ..deps import get_current_user
 from ..services import ai_exercises  # 👈 hay que exponer el módulo en __init__.py de services
 from ..services.storage import generate_signed_url, download_blob
+from ..config import settings
 from ..services.pdf_generator import generate_exercise_pdf, upload_exercise_pdf_to_storage
 
 router = APIRouter()
@@ -330,7 +331,7 @@ def download_exercise_audio(
     current_user: models.User = Depends(get_current_user),
 ):
     """
-    Descarga el archivo de audio de un ejercicio.
+    Descarga el archivo de audio de un ejercicio desde la carpeta media.
     El archivo se sirve directamente desde el backend para evitar problemas de CORS.
     
     Accesible por:
@@ -387,7 +388,7 @@ def download_exercise_audio(
         )
 
     try:
-        # Descargar el archivo de audio desde Google Cloud Storage
+        # Descargar el archivo de audio desde media
         audio_bytes = download_blob(exercise.audio_path)
         
         # Crear un stream para enviar el archivo
@@ -415,12 +416,13 @@ def download_exercise_audio(
 @router.get("/{exercise_id}/pdf-url", response_model=dict)
 def get_exercise_pdf_url(
     exercise_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
     """
-    Genera y retorna una URL firmada temporal para descargar el PDF de un ejercicio.
-    El PDF se genera sobre la marcha y se almacena en Google Cloud Storage.
+    Genera y retorna una URL para descargar el PDF de un ejercicio.
+    El PDF se genera sobre la marcha y se almacena en media.
     
     Accesible por:
     - Terapeutas propietarios del ejercicio
@@ -473,7 +475,12 @@ def get_exercise_pdf_url(
         # Generar URL del audio para el QR
         audio_url = None
         if exercise.audio_path:
-            audio_url = generate_signed_url(exercise.audio_path, minutes=60)
+            raw_url = generate_signed_url(exercise.audio_path, minutes=60)
+            if raw_url.startswith("/"):
+                base = (settings.public_base_url or str(request.base_url)).rstrip("/")
+                audio_url = f"{base}{raw_url}"
+            else:
+                audio_url = raw_url
         
         # Generar PDF
         pdf_bytes = generate_exercise_pdf(
@@ -483,7 +490,7 @@ def get_exercise_pdf_url(
             audio_url=audio_url,
         )
         
-        # Subir a Google Cloud Storage
+        # Guardar en media
         pdf_blob_name = upload_exercise_pdf_to_storage(
             pdf_bytes=pdf_bytes,
             exercise_id=exercise.id,

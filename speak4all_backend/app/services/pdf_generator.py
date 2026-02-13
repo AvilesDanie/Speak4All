@@ -166,15 +166,15 @@ def upload_exercise_pdf_to_storage(
     exercise_name: str,
 ) -> str:
     """
-    Sube el PDF generado a Google Cloud Storage.
-    
+    Guarda el PDF generado en la carpeta media.
+
     Args:
         pdf_bytes: Bytes del PDF
         exercise_id: ID del ejercicio
         exercise_name: Nombre del ejercicio (para el nombre del archivo)
-    
+
     Returns:
-        blob_name (ruta en el storage)
+        Ruta relativa en media
     """
     
     try:
@@ -188,7 +188,7 @@ def upload_exercise_pdf_to_storage(
         pdf_file_obj = io.BytesIO(pdf_bytes)
         pdf_file_obj.seek(0)  # Asegurar que el cursor está al inicio
         
-        # Subir a storage
+        # Guardar en media
         blob_name = upload_fileobj(
             pdf_file_obj,
             destination_blob_name,

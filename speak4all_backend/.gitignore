@@ -71,3 +71,5 @@ tts_build_*/
 
 Dockerfile
 .dockerignore
+gcp-key.json
+gcp-key.json/

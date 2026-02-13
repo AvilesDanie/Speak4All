@@ -166,7 +166,7 @@ def save_submission_media(
     student_id: int,
 ) -> str:
     """
-    Sube la imagen/video a Google Cloud Storage y devuelve el blob_name.
+    Sube la imagen/video a la carpeta media y devuelve el path relativo.
 
     Estructura en el bucket:
       submissions/{course_id}/{course_ex_id}/{student_id}/timestamp_nombre_original.ext
@@ -230,9 +230,9 @@ async def submit_exercise(
     if existing_submission and existing_submission.media_path:
         try:
             delete_blob(existing_submission.media_path)
-            logger.info(f"Media anterior eliminada de GCS: {existing_submission.media_path}")
+            logger.info(f"Media anterior eliminada de media: {existing_submission.media_path}")
         except Exception as e:
-            logger.warning(f"No se pudo eliminar la media anterior de GCS: {e}")
+            logger.warning(f"No se pudo eliminar la media anterior de media: {e}")
     
     media_path = save_submission_media(media, course_ex, current_user.id)
 
@@ -328,13 +328,13 @@ async def cancel_submission(
     # Verificar fecha límite
     check_due_date(course_ex)
 
-    # Borrar el archivo de Google Cloud Storage si existe
+    # Borrar el archivo de media si existe
     if sub.media_path:
         try:
             delete_blob(sub.media_path)
-            logger.info(f"Media eliminada de GCS al cancelar submission: {sub.media_path}")
+            logger.info(f"Media eliminada de media al cancelar submission: {sub.media_path}")
         except Exception as e:
-            logger.warning(f"No se pudo eliminar la media de GCS: {e}")
+            logger.warning(f"No se pudo eliminar la media de media: {e}")
 
     # Obtener datos necesarios antes de eliminar
     course_id = course_ex.course_id
@@ -651,6 +651,34 @@ def get_submission_media_url(
 
     if not sub or not sub.media_path:
         raise HTTPException(status_code=404, detail="Media no encontrada")
+
+    if current_user.role == models.UserRole.STUDENT:
+        if sub.student_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permiso para acceder a esta evidencia.",
+            )
+    elif current_user.role == models.UserRole.THERAPIST:
+        course = (
+            db.query(models.Course)
+            .join(models.CourseExercise, models.Course.id == models.CourseExercise.course_id)
+            .filter(
+                models.CourseExercise.id == sub.course_exercise_id,
+                models.Course.therapist_id == current_user.id,
+                models.Course.deleted_at.is_(None),
+            )
+            .first()
+        )
+        if not course:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permiso para acceder a esta evidencia.",
+            )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Rol no permitido.",
+        )
 
     url = generate_signed_url(sub.media_path, minutes=60)
     return {"url": url}

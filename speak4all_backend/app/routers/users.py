@@ -97,11 +97,11 @@ async def upload_avatar(
             # Si falla el borrado, continuamos; no bloquea la subida
             pass
 
-    # Generar nombre único para el archivo en GCS
+    # Generar nombre único para el archivo en media
     random_name = secrets.token_urlsafe(16)
     blob_name = f"avatars/{current_user.id}_{random_name}{file_ext}"
 
-    # Subir a GCS
+    # Subir a media
     storage.upload_fileobj(
         file_obj=file.file,
         destination_blob_name=blob_name,
@@ -177,7 +177,7 @@ def get_my_avatar_url(current_user: User = Depends(get_current_user)):
     if not current_user.avatar_path:
         return {"url": None}
 
-    # Generamos URL firmada desde GCS
+    # Generamos URL desde media
     try:
         signed_url = storage.generate_signed_url(current_user.avatar_path, minutes=60)
         return {"url": signed_url}

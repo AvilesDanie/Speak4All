@@ -5,7 +5,6 @@ from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
 import logging
-from app.services.storage import upload_local_file
 import shutil
 
 logger = logging.getLogger(__name__)
@@ -238,8 +237,8 @@ def build_audio_from_marked_text(marked_text: str, base_dir: Path | None = None)
 
     Ahora:
     - Genera el audio en una carpeta temporal dentro de media/exercises.
-    - Sube el MP3 final a Google Cloud Storage.
-    - Devuelve el blob_name en GCS (ej: "exercises/tts_build_YYYYMMDD_HHMMSS/exercise_....mp3").
+    - Guarda el MP3 final en media.
+    - Devuelve la ruta relativa (ej: "exercises/tts_build_YYYYMMDD_HHMMSS/exercise_....mp3").
     """
     if base_dir is None:
         base_dir = Path.cwd()
@@ -281,15 +280,12 @@ def build_audio_from_marked_text(marked_text: str, base_dir: Path | None = None)
     out_mp3 = workdir / f"exercise_{ts}_marcado_con_pausas.mp3"
     concat_to_mp3(norm, out_mp3)
 
-    # === NUEVO: subir a GCS ===
-    blob_name = f"exercises/tts_build_{ts}/{out_mp3.name}"
-    upload_local_file(out_mp3, blob_name, content_type="audio/mpeg")
-
-    # (Opcional pero recomendable): limpiar la carpeta local
+    # Limpiar temporales (wav) pero conservar el mp3 final
     try:
-        shutil.rmtree(workdir)
+        shutil.rmtree(tmp)
     except Exception as e:
-        logger.warning(f"No se pudo borrar carpeta temporal {workdir}: {e}")
+        logger.warning(f"No se pudo borrar carpeta temporal {tmp}: {e}")
 
-    logger.info(f"Audio generado y subido a GCS: {blob_name}")
-    return blob_name
+    relative_path = f"exercises/tts_build_{ts}/{out_mp3.name}"
+    logger.info(f"Audio generado y guardado en media: {relative_path}")
+    return relative_path

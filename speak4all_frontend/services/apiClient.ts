@@ -3,6 +3,25 @@
 
 export const API_BASE = '/api/backend';
 
+export function normalizeBackendUrl(url?: string | null): string | null {
+  if (!url) return null;
+  if (url.startsWith('http')) return url;
+  if (url.startsWith(API_BASE)) return url;
+  if (url.startsWith('/')) return `${API_BASE}${url}`;
+  return `${API_BASE}/${url}`;
+}
+
+export function mediaPathToUrl(mediaPath?: string | null): string | null {
+  if (!mediaPath) return null;
+  if (mediaPath.startsWith('http')) return mediaPath;
+  const normalized = mediaPath.startsWith('/media/')
+    ? mediaPath
+    : mediaPath.startsWith('/')
+    ? `/media${mediaPath}`
+    : `/media/${mediaPath}`;
+  return normalizeBackendUrl(normalized);
+}
+
 export interface RequestOptions extends RequestInit {
   token?: string | null;
   skipJson?: boolean; // para endpoints que retornan 204 sin cuerpo

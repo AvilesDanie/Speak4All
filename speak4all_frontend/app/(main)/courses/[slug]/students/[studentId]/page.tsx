@@ -12,7 +12,7 @@ import { InputNumber } from 'primereact/inputnumber';
 import { Calendar } from 'primereact/calendar';
 import { Dropdown } from 'primereact/dropdown';
 import { Paginator, PaginatorPageChangeEvent } from 'primereact/paginator';
-import { API_BASE } from '@/services/apiClient';
+import { API_BASE, normalizeBackendUrl } from '@/services/apiClient';
 import { BackendUser, Role } from '@/services/auth';
 import { StudentExerciseStatus, SubmissionStatus } from '@/services/courses';
 import { useWebSocket, WebSocketMessage } from '@/hooks/useWebSocket';
@@ -427,7 +427,7 @@ const StudentProgressPage: React.FC = () => {
                         );
                         if (mediaUrlRes.ok) {
                             const mediaData = await mediaUrlRes.json();
-                            setSubmissionMediaUrl(mediaData.url);
+                            setSubmissionMediaUrl(normalizeBackendUrl(mediaData.url));
                         } else {
                             setSubmissionDetailError('Error obteniendo evidencia de la entrega.');
                         }

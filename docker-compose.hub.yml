@@ -35,15 +35,13 @@ services:
       OPENAI_MODEL: ${OPENAI_MODEL}
       OPENAI_TTS_MODEL: ${OPENAI_TTS_MODEL}
       TTS_VOICE_NAME: ${TTS_VOICE_NAME}
-      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS}
-      GCP_BUCKET_NAME: ${GCP_BUCKET_NAME}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
       - ./speak4all_backend/media:/code/media
-      - ./gcp-key.json:/code/gcp-key.json:ro
     restart: unless-stopped
 
   frontend:

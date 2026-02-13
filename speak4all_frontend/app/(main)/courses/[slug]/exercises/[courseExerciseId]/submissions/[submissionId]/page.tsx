@@ -13,7 +13,7 @@ import { Message } from 'primereact/message';
 import { ProgressBar } from 'primereact/progressbar';
 import { ObservationsDisplay } from '@/components/ObservationsDisplay';
 import { useAuth } from '@/hooks/useAuth';
-import { API_BASE } from '@/services/apiClient';
+import { API_BASE, normalizeBackendUrl } from '@/services/apiClient';
 import { evaluationService, rubricService } from '@/services/rubrics';
 
 interface SubmissionDetail {
@@ -175,7 +175,7 @@ export default function SubmissionDetailPage() {
           );
           if (resMedia.ok) {
             const m = await resMedia.json();
-            setMediaUrl(m.url);
+            setMediaUrl(normalizeBackendUrl(m.url));
           }
         }
 

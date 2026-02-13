@@ -38,9 +38,7 @@ import { BackendUser } from '@/services/auth';
 import { useWebSocket, WebSocketMessage } from '@/hooks/useWebSocket';
 import { useExerciseNotifications } from '@/contexts/ExerciseNotificationContext';
 
-// Evidencias de entrega (foto/video) usan URLs firmadas provistas por el backend
-
-// El backend ahora devuelve URLs firmadas de Google Cloud Storage directamente
+// Evidencias de entrega (foto/video) usan URLs provistas por el backend
 const buildAvatarUrl = (path?: string | null) => {
     // Si es null o undefined, no hay avatar
     if (!path) return null;

@@ -1,5 +1,4 @@
 # Archivos de configuración con credenciales
-gcp-key.json
 .env.local
 .env
 push-to-dockerhub.ps1
@@ -24,3 +23,5 @@ venv/
 Dockerfile
 .dockerignore
 
+gcp-key.json
+gcp-key.json/

@@ -6,7 +6,7 @@ import { useParams } from 'next/navigation';
 import { Card } from 'primereact/card';
 import { Tag } from 'primereact/tag';
 import { ProgressBar } from 'primereact/progressbar';
-import { API_BASE } from '@/services/apiClient';
+import { API_BASE, normalizeBackendUrl } from '@/services/apiClient';
 
 interface Submission {
   id: number;
@@ -146,7 +146,7 @@ export default function StudentExercisesView() {
         );
         if (resMedia.ok) {
           const m = await resMedia.json();
-          setMediaUrl(m.url);
+          setMediaUrl(normalizeBackendUrl(m.url));
         }
       }
 

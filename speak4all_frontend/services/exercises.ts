@@ -1,6 +1,6 @@
 // Centralized API service for exercise-related endpoints
 
-import { buildQuery, fetchJSON } from './apiClient';
+import { buildQuery, fetchJSON, normalizeBackendUrl } from './apiClient';
 
 // ==== PAGINATION ====
 export interface PaginatedResponse<T> {
@@ -124,7 +124,7 @@ export async function getExerciseAudioUrl(exerciseId: number, token: string): Pr
     token, 
     method: 'GET' 
   });
-  return data.url;
+  return normalizeBackendUrl(data.url) || data.url;
 }
 
 export async function getSubmissionMediaUrl(submissionId: number, token: string): Promise<string> {
@@ -132,7 +132,7 @@ export async function getSubmissionMediaUrl(submissionId: number, token: string)
     token, 
     method: 'GET' 
   });
-  return data.url;
+  return normalizeBackendUrl(data.url) || data.url;
 }
 
 export async function getExercisePdfUrl(exerciseId: number, token: string): Promise<string> {
@@ -140,5 +140,5 @@ export async function getExercisePdfUrl(exerciseId: number, token: string): Prom
     token, 
     method: 'GET' 
   });
-  return data.url;
+  return normalizeBackendUrl(data.url) || data.url;
 }

@@ -16,9 +16,7 @@ class Settings(BaseSettings):
     openai_tts_model: str = "gpt-4o-mini-tts"
     tts_voice_name: str = "coral"
 
-    # === Google Cloud Storage ===
-    google_application_credentials: str | None = None
-    gcp_bucket_name: str
+    # === Storage (local media) ===
 
     # === Audio ===
     audio_rate: int = 44100
@@ -26,6 +24,9 @@ class Settings(BaseSettings):
 
     # === CORS ===
     cors_origins: str = "http://localhost:3000"
+
+    # === Public URL ===
+    public_base_url: str | None = None
 
     # === File Upload Limits ===
     max_upload_size_mb: int = 500

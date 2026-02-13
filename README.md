@@ -10,7 +10,7 @@
 - 👥 **Gestión de estudiantes y cursos** para terapeutas
 - 📈 **Dashboard de progreso** con métricas detalladas
 - 🔐 **Autenticación con Google OAuth**
-- ☁️ **Almacenamiento en Google Cloud Storage**
+- 💾 **Almacenamiento local en carpeta media**
 - 🌐 **WebSocket en tiempo real** para actualizaciones
 
 ## 🚀 Inicio Rápido
@@ -26,10 +26,7 @@ cd speak4all
 cp .env.example .env
 # Edita .env con tus credenciales
 
-# 3. Agregar credenciales de Google Cloud
-# Coloca tu archivo JSON en gcp-key.json/
-
-# 4. Iniciar con imágenes pre-construidas
+# 3. Iniciar con imágenes pre-construidas
 docker compose -f docker-compose.hub.yml up -d
 ```
 
@@ -48,7 +45,6 @@ docker compose up -d --build
 - Docker y Docker Compose
 - Credenciales de:
   - [OpenAI API](https://platform.openai.com/)
-  - [Google Cloud Storage](https://cloud.google.com/storage)
   - [Google OAuth](https://console.cloud.google.com/)
 
 ## 📖 Documentación Completa
@@ -112,15 +108,14 @@ docker push tuusuario/speak4all-frontend:latest
 └─────────────────┘      └──────────────────┘      └─────────────────┘
          │                        │
          │                        │
-         └────────────────────────┴───────────▶ Google Cloud Storage
-                                                (Media files)
+         └────────────────────────┴───────────▶ Carpeta media/
+                                                (Archivos locales)
 ```
 
 ## 🔐 Seguridad
 
 ⚠️ **IMPORTANTE**:
 - El archivo `.env` contiene información sensible - **NO lo subas a GitHub**
-- Las credenciales de GCP (`gcp-key.json/`) son privadas - **NO las compartas**
 - Genera secrets fuertes y únicos para producción
 - Usa HTTPS en producción
 - Configura CORS apropiadamente
@@ -177,8 +172,6 @@ DATABASE_URL=postgresql://postgres:postgres@db:5432/speak4all
 JWT_SECRET=cambiar-esto-en-produccion
 OPENAI_API_KEY=sk-tu-key
 GOOGLE_CLIENT_ID=tu-google-id
-GOOGLE_APPLICATION_CREDENTIALS=/app/gcp-key.json
-GCP_BUCKET_NAME=speak4all-storage
 CORS_ORIGINS=http://localhost:3000
 LOG_LEVEL=INFO
 ```
@@ -233,7 +226,6 @@ gcloud run deploy speak4all-frontend \
 - [ ] JWT_SECRET único y seguro
 - [ ] GOOGLE_CLIENT_ID configurado
 - [ ] CORS_ORIGINS sin `*`
-- [ ] gcp-key.json en .gitignore (✅ incluido)
 - [ ] HTTPS habilitado
 - [ ] Backups configurados
 - [ ] Logging monitorizado
