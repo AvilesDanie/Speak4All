@@ -27,7 +27,7 @@ const AppTopbar = forwardRef<AppTopbarRef>((props, ref) => {
         menubutton: menubuttonRef.current
     }));
 
-    const handleLogout = () => {
+    const handleLogout = async () => {
         if (typeof window !== 'undefined') {
             // Limpiar todas las notificaciones guardadas
             const keys = Object.keys(localStorage);
@@ -46,7 +46,13 @@ const AppTopbar = forwardRef<AppTopbarRef>((props, ref) => {
             window.dispatchEvent(new Event('user-logout'));
         }
 
-        signOut({ callbackUrl: '/auth/login2' });
+        try {
+            await signOut({ redirect: false });
+        } finally {
+            if (typeof window !== 'undefined') {
+                window.location.assign('/auth/login2');
+            }
+        }
     };
 
     return (
