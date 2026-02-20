@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from google.oauth2 import id_token
 from google.auth.transport import requests
 import logging
+import re
 
 from ..database import get_db
 from .. import models
@@ -12,6 +13,13 @@ from ..config import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+EMAIL_MIN_LENGTH = 5
+EMAIL_MAX_LENGTH = 254
+PASSWORD_MIN_LENGTH = 6
+PASSWORD_MAX_LENGTH = 72
+FULL_NAME_MAX_LENGTH = 80
+FULL_NAME_ALLOWED_REGEX = re.compile(r"^[A-Za-zÁÉÍÓÚáéíóúÑñÜü\s]+$")
 
 
 def verify_google_token(token: str) -> dict:
@@ -166,16 +174,46 @@ def register(
     payload: schemas.RegisterRequest,
     db: Session = Depends(get_db),
 ):
+    email = payload.email.strip()
+    full_name = payload.full_name.strip()
+
+    if len(email) < EMAIL_MIN_LENGTH or len(email) > EMAIL_MAX_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"El correo debe tener entre {EMAIL_MIN_LENGTH} y {EMAIL_MAX_LENGTH} caracteres",
+        )
+
+    if len(payload.password) < PASSWORD_MIN_LENGTH or len(payload.password) > PASSWORD_MAX_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"La contraseña debe tener entre {PASSWORD_MIN_LENGTH} y {PASSWORD_MAX_LENGTH} caracteres",
+        )
+
+    if not full_name:
+        raise HTTPException(status_code=400, detail="El nombre es obligatorio")
+
+    if len(full_name) > FULL_NAME_MAX_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"El nombre debe tener máximo {FULL_NAME_MAX_LENGTH} caracteres",
+        )
+
+    if not FULL_NAME_ALLOWED_REGEX.fullmatch(full_name):
+        raise HTTPException(
+            status_code=400,
+            detail="El nombre solo puede contener letras y espacios",
+        )
+
     existing = db.query(models.User).filter(
-        models.User.email == payload.email,
+        models.User.email == email,
         models.User.deleted_at.is_(None),
     ).first()
     if existing:
         raise HTTPException(status_code=400, detail="El correo ya está registrado")
 
     user = models.User(
-        email=payload.email,
-        full_name=payload.full_name,
+        email=email,
+        full_name=full_name,
         role=payload.role,
         password_hash=hash_password(payload.password),
     )
@@ -192,8 +230,22 @@ def login(
     payload: schemas.LoginRequest,
     db: Session = Depends(get_db),
 ):
+    email = payload.email.strip()
+
+    if len(email) < EMAIL_MIN_LENGTH or len(email) > EMAIL_MAX_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"El correo debe tener entre {EMAIL_MIN_LENGTH} y {EMAIL_MAX_LENGTH} caracteres",
+        )
+
+    if len(payload.password) < PASSWORD_MIN_LENGTH or len(payload.password) > PASSWORD_MAX_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"La contraseña debe tener entre {PASSWORD_MIN_LENGTH} y {PASSWORD_MAX_LENGTH} caracteres",
+        )
+
     user = db.query(models.User).filter(
-        models.User.email == payload.email,
+        models.User.email == email,
         models.User.deleted_at.is_(None),
     ).first()
     if not user or not user.password_hash:

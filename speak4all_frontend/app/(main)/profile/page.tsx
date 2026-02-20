@@ -25,6 +25,13 @@ import {
 } from '@/services/profile';
 import { API_BASE } from '@/services/apiClient';
 
+const EMAIL_MIN_LENGTH = 5;
+const EMAIL_MAX_LENGTH = 254;
+const PASSWORD_MIN_LENGTH = 6;
+const PASSWORD_MAX_LENGTH = 72;
+const FULL_NAME_MAX_LENGTH = 80;
+const FULL_NAME_ALLOWED_REGEX = /^[A-Za-zÁÉÍÓÚáéíóúÑñÜü\s]+$/;
+
 const createImage = (url: string) =>
     new Promise<HTMLImageElement>((resolve, reject) => {
         const image = new Image();
@@ -116,7 +123,7 @@ export default function ProfilePage() {
     useEffect(() => {
         const storedToken = window.localStorage.getItem('backend_token');
         if (!storedToken) {
-            router.push('/auth/login');
+            router.push('/auth/login2');
             return;
         }
         setToken(storedToken);
@@ -162,7 +169,10 @@ export default function ProfilePage() {
     };
 
     const handleUpdateProfile = async () => {
-        if (!token || !fullName.trim() || !email.trim()) {
+        const normalizedFullName = fullName.trim();
+        const normalizedEmail = email.trim();
+
+        if (!token || !normalizedFullName || !normalizedEmail) {
             toast.current?.show({
                 severity: 'warn',
                 summary: 'Campos requeridos',
@@ -172,11 +182,41 @@ export default function ProfilePage() {
             return;
         }
 
+        if (normalizedEmail.length < EMAIL_MIN_LENGTH || normalizedEmail.length > EMAIL_MAX_LENGTH) {
+            toast.current?.show({
+                severity: 'warn',
+                summary: 'Email inválido',
+                detail: `El correo debe tener entre ${EMAIL_MIN_LENGTH} y ${EMAIL_MAX_LENGTH} caracteres`,
+                life: 3000,
+            });
+            return;
+        }
+
+        if (normalizedFullName.length > FULL_NAME_MAX_LENGTH) {
+            toast.current?.show({
+                severity: 'warn',
+                summary: 'Nombre inválido',
+                detail: `El nombre debe tener máximo ${FULL_NAME_MAX_LENGTH} caracteres`,
+                life: 3000,
+            });
+            return;
+        }
+
+        if (!FULL_NAME_ALLOWED_REGEX.test(normalizedFullName)) {
+            toast.current?.show({
+                severity: 'warn',
+                summary: 'Nombre inválido',
+                detail: 'El nombre solo puede contener letras y espacios',
+                life: 3000,
+            });
+            return;
+        }
+
         try {
             setSaving(true);
             const updated = await updateMyProfile(token, {
-                full_name: fullName,
-                email: email,
+                full_name: normalizedFullName,
+                email: normalizedEmail,
             });
             setProfile(updated);
 
@@ -352,6 +392,16 @@ export default function ProfilePage() {
             return;
         }
 
+        if (newPassword.length > PASSWORD_MAX_LENGTH) {
+            toast.current?.show({
+                severity: 'warn',
+                summary: 'Contraseña inválida',
+                detail: `La contraseña debe tener entre ${PASSWORD_MIN_LENGTH} y ${PASSWORD_MAX_LENGTH} caracteres`,
+                life: 3000,
+            });
+            return;
+        }
+
         try {
             setChangingPassword(true);
 
@@ -475,7 +525,13 @@ export default function ProfilePage() {
                                 <InputText
                                     id="fullName"
                                     value={fullName}
-                                    onChange={(e) => setFullName(e.target.value)}
+                                    onChange={(e) => {
+                                        const nextValue = e.target.value;
+                                        if (nextValue.length <= FULL_NAME_MAX_LENGTH) {
+                                            setFullName(nextValue);
+                                        }
+                                    }}
+                                    maxLength={FULL_NAME_MAX_LENGTH}
                                     className="w-full"
                                 />
                             </div>
@@ -487,6 +543,8 @@ export default function ProfilePage() {
                                     type="email"
                                     value={email}
                                     onChange={(e) => setEmail(e.target.value)}
+                                    minLength={EMAIL_MIN_LENGTH}
+                                    maxLength={EMAIL_MAX_LENGTH}
                                     className="w-full"
                                 />
                             </div>
@@ -563,7 +621,12 @@ export default function ProfilePage() {
                                                     <Password
                                                         id="newPassword"
                                                         value={newPassword}
-                                                        onChange={(e) => setNewPassword(e.target.value)}
+                                                        onChange={(e) => {
+                                                            const nextValue = e.target.value;
+                                                            if (nextValue.length <= PASSWORD_MAX_LENGTH) {
+                                                                setNewPassword(nextValue);
+                                                            }
+                                                        }}
                                                         toggleMask
                                                         className="w-full"
                                                         inputClassName="w-full"
@@ -623,7 +686,12 @@ export default function ProfilePage() {
                                                     <Password
                                                         id="newPassword"
                                                         value={newPassword}
-                                                        onChange={(e) => setNewPassword(e.target.value)}
+                                                        onChange={(e) => {
+                                                            const nextValue = e.target.value;
+                                                            if (nextValue.length <= PASSWORD_MAX_LENGTH) {
+                                                                setNewPassword(nextValue);
+                                                            }
+                                                        }}
                                                         toggleMask
                                                         className="w-full"
                                                         inputClassName="w-full"

@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 from pathlib import Path
 import secrets
+import re
 
 from ..database import get_db
 from ..deps import get_current_user, hash_password, verify_password
@@ -14,6 +15,12 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 ALLOWED_AVATAR_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 MAX_AVATAR_SIZE_MB = 5
+EMAIL_MIN_LENGTH = 5
+EMAIL_MAX_LENGTH = 254
+PASSWORD_MIN_LENGTH = 6
+PASSWORD_MAX_LENGTH = 72
+FULL_NAME_MAX_LENGTH = 80
+FULL_NAME_ALLOWED_REGEX = re.compile(r"^[A-Za-zÁÉÍÓÚáéíóúÑñÜü\s]+$")
 
 
 @router.get("/me", response_model=UserOut)
@@ -42,12 +49,40 @@ def update_my_profile(
     
     # Actualizar solo los campos proporcionados
     if profile_update.full_name is not None:
-        current_user.full_name = profile_update.full_name
+        normalized_full_name = profile_update.full_name.strip()
+
+        if not normalized_full_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El nombre es obligatorio"
+            )
+
+        if len(normalized_full_name) > FULL_NAME_MAX_LENGTH:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"El nombre debe tener máximo {FULL_NAME_MAX_LENGTH} caracteres"
+            )
+
+        if not FULL_NAME_ALLOWED_REGEX.fullmatch(normalized_full_name):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El nombre solo puede contener letras y espacios"
+            )
+
+        current_user.full_name = normalized_full_name
     
     if profile_update.email is not None:
+        normalized_email = profile_update.email.strip()
+
+        if len(normalized_email) < EMAIL_MIN_LENGTH or len(normalized_email) > EMAIL_MAX_LENGTH:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"El correo debe tener entre {EMAIL_MIN_LENGTH} y {EMAIL_MAX_LENGTH} caracteres"
+            )
+
         # Verificar que el email no esté en uso por otro usuario
         existing = db.query(User).filter(
-            User.email == profile_update.email,
+            User.email == normalized_email,
             User.id != current_user.id
         ).first()
         if existing:
@@ -55,7 +90,7 @@ def update_my_profile(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Email already in use"
             )
-        current_user.email = profile_update.email
+        current_user.email = normalized_email
     
     db.commit()
     db.refresh(current_user)
@@ -144,6 +179,12 @@ def change_password(
     """Cambiar o establecer contraseña del usuario"""
     
     # Si el usuario NO tiene contraseña (solo OAuth), permitir establecer una nueva
+    if len(password_data.new_password) < PASSWORD_MIN_LENGTH or len(password_data.new_password) > PASSWORD_MAX_LENGTH:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"La contraseña debe tener entre {PASSWORD_MIN_LENGTH} y {PASSWORD_MAX_LENGTH} caracteres"
+        )
+
     if not current_user.password_hash:
         # Establecer contraseña por primera vez
         current_user.password_hash = hash_password(password_data.new_password)

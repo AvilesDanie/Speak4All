@@ -7,6 +7,9 @@ import { Dialog } from 'primereact/dialog';
 import { InputText } from 'primereact/inputtext';
 import { Button } from 'primereact/button';
 
+const JOIN_CODE_MIN_LENGTH = 4;
+const JOIN_CODE_MAX_LENGTH = 32;
+
 interface JoinCourseDialogProps {
     visible: boolean;
     onHide: () => void;
@@ -39,12 +42,19 @@ const JoinCourseDialog: React.FC<JoinCourseDialogProps> = ({
     };
 
     const handleSubmit = async () => {
+        const normalizedJoinCode = joinCode.trim();
+
         if (!token) {
             setError('No se encontró el token de autenticación.');
             return;
         }
-        if (!joinCode.trim()) {
+        if (!normalizedJoinCode) {
             setError('El código de curso es obligatorio.');
+            return;
+        }
+
+        if (normalizedJoinCode.length < JOIN_CODE_MIN_LENGTH || normalizedJoinCode.length > JOIN_CODE_MAX_LENGTH) {
+            setError(`El código debe tener entre ${JOIN_CODE_MIN_LENGTH} y ${JOIN_CODE_MAX_LENGTH} caracteres.`);
             return;
         }
 
@@ -52,7 +62,7 @@ const JoinCourseDialog: React.FC<JoinCourseDialogProps> = ({
         setError(null);
 
         try {
-            await joinCourse(token, joinCode.trim());
+            await joinCourse(token, normalizedJoinCode);
             if (onJoined) onJoined();
             if (onSuccess)
                 onSuccess(
@@ -101,7 +111,14 @@ const JoinCourseDialog: React.FC<JoinCourseDialogProps> = ({
                     <InputText
                         id="join-code"
                         value={joinCode}
-                        onChange={(e) => setJoinCode(e.target.value)}
+                        onChange={(e) => {
+                            const nextValue = e.target.value;
+                            if (nextValue.length <= JOIN_CODE_MAX_LENGTH) {
+                                setJoinCode(nextValue);
+                            }
+                        }}
+                        minLength={JOIN_CODE_MIN_LENGTH}
+                        maxLength={JOIN_CODE_MAX_LENGTH}
                         placeholder="Ej. sKds_a"
                     />
                     <small className="text-600">

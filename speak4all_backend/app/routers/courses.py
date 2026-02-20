@@ -14,6 +14,9 @@ import secrets
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+JOIN_CODE_MIN_LENGTH = 4
+JOIN_CODE_MAX_LENGTH = 32
+
 
 @router.post("/", response_model=schemas.CourseOut)
 def create_course(
@@ -53,8 +56,16 @@ def request_join_course(
             detail="Solo estudiantes pueden unirse a cursos",
         )
 
+    normalized_join_code = data.join_code.strip()
+
+    if len(normalized_join_code) < JOIN_CODE_MIN_LENGTH or len(normalized_join_code) > JOIN_CODE_MAX_LENGTH:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"El código debe tener entre {JOIN_CODE_MIN_LENGTH} y {JOIN_CODE_MAX_LENGTH} caracteres",
+        )
+
     course = db.query(models.Course).filter(
-        models.Course.join_code == data.join_code,
+        models.Course.join_code == normalized_join_code,
         models.Course.deleted_at.is_(None),
     ).first()
 
@@ -213,6 +224,12 @@ def list_join_requests(
     current_user: models.User = Depends(get_current_user),
 ):
     course = get_course_owned_or_404(db, course_id, current_user)
+
+    if from_date and to_date and to_date < from_date:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La fecha final no puede ser anterior a la fecha inicial",
+        )
 
     # Determinar estados a filtrar
     if status is None:

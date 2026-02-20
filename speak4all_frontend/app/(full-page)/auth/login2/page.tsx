@@ -8,6 +8,13 @@ import React, { useState } from 'react';
 import type { Page } from '@/types';
 import { signIn } from 'next-auth/react';
 
+const EMAIL_MIN_LENGTH = 5;
+const EMAIL_MAX_LENGTH = 254;
+const PASSWORD_MIN_LENGTH = 6;
+const PASSWORD_MAX_LENGTH = 72;
+const FULL_NAME_MAX_LENGTH = 80;
+const FULL_NAME_ALLOWED_REGEX = /^[A-Za-zÁÉÍÓÚáéíóúÑñÜü\s]+$/;
+
 const Login: Page = () => {
     const router = useRouter();
 
@@ -15,6 +22,7 @@ const Login: Page = () => {
     const [mode, setMode] = useState<'login' | 'register'>('login');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
     const [fullName, setFullName] = useState('');
     const [role, setRole] = useState<'THERAPIST' | 'STUDENT' | null>(null);
     const [loading, setLoading] = useState(false);
@@ -22,6 +30,22 @@ const Login: Page = () => {
 
     const handleGoogleLogin = () => {
         signIn('google', { callbackUrl: '/' });
+    };
+
+    const validateCredentialsLength = () => {
+        const normalizedEmail = email.trim();
+
+        if (normalizedEmail.length < EMAIL_MIN_LENGTH || normalizedEmail.length > EMAIL_MAX_LENGTH) {
+            setError(`El correo debe tener entre ${EMAIL_MIN_LENGTH} y ${EMAIL_MAX_LENGTH} caracteres.`);
+            return false;
+        }
+
+        if (password.length < PASSWORD_MIN_LENGTH || password.length > PASSWORD_MAX_LENGTH) {
+            setError(`La contraseña debe tener entre ${PASSWORD_MIN_LENGTH} y ${PASSWORD_MAX_LENGTH} caracteres.`);
+            return false;
+        }
+
+        return true;
     };
 
     const handleLocalAuth = async () => {
@@ -34,15 +58,43 @@ const Login: Page = () => {
                 return;
             }
 
+            if (!validateCredentialsLength()) {
+                return;
+            }
+
+            const normalizedEmail = email.trim();
+            const normalizedFullName = fullName.trim();
+
             if (mode === 'register') {
-                if (!fullName || !role) {
+                if (!normalizedFullName || !role) {
                     setError('Completa nombre y rol.');
                     return;
                 }
+
+                if (!confirmPassword) {
+                    setError('Confirma tu contraseña.');
+                    return;
+                }
+
+                if (password !== confirmPassword) {
+                    setError('Las contraseñas no coinciden.');
+                    return;
+                }
+
+                if (normalizedFullName.length > FULL_NAME_MAX_LENGTH) {
+                    setError(`El nombre debe tener máximo ${FULL_NAME_MAX_LENGTH} caracteres.`);
+                    return;
+                }
+
+                if (!FULL_NAME_ALLOWED_REGEX.test(normalizedFullName)) {
+                    setError('El nombre solo puede contener letras y espacios.');
+                    return;
+                }
+
                 const res = await fetch('/api/backend/auth/register', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email, password, full_name: fullName, role }),
+                    body: JSON.stringify({ email: normalizedEmail, password, full_name: normalizedFullName, role }),
                 });
                 if (!res.ok) {
                     const errorData = await res.json().catch(() => ({ detail: 'No se pudo registrar.' }));
@@ -64,7 +116,7 @@ const Login: Page = () => {
             const res = await fetch('/api/backend/auth/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, password }),
+                body: JSON.stringify({ email: normalizedEmail, password }),
             });
             if (!res.ok) {
                 const errorData = await res.json().catch(() => ({ detail: 'Credenciales inválidas.' }));
@@ -198,17 +250,63 @@ const Login: Page = () => {
                             {mode === 'register' && (
                                 <div className="col-12 mb-2">
                                     <label className="text-600 text-sm mb-1 block">Nombre completo</label>
-                                    <InputText value={fullName} onChange={(e) => setFullName(e.target.value)} className="w-full" />
+                                    <InputText
+                                        value={fullName}
+                                        onChange={(e) => {
+                                            const nextValue = e.target.value;
+                                            if (nextValue.length <= FULL_NAME_MAX_LENGTH) {
+                                                setFullName(nextValue);
+                                            }
+                                        }}
+                                        className="w-full"
+                                        maxLength={FULL_NAME_MAX_LENGTH}
+                                    />
                                 </div>
                             )}
                             <div className="col-12 mb-2">
                                 <label className="text-600 text-sm mb-1 block">Correo</label>
-                                <InputText value={email} onChange={(e) => setEmail(e.target.value)} className="w-full" />
+                                <InputText
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                    className="w-full"
+                                    minLength={EMAIL_MIN_LENGTH}
+                                    maxLength={EMAIL_MAX_LENGTH}
+                                />
                             </div>
                             <div className="col-12 mb-2">
                                 <label className="text-600 text-sm mb-1 block">Contraseña</label>
-                                <Password value={password} onChange={(e) => setPassword(e.target.value)} className="w-full" inputClassName="w-full" toggleMask feedback={false} />
+                                <Password
+                                    value={password}
+                                    onChange={(e) => {
+                                        const nextPassword = e.target.value;
+                                        if (nextPassword.length <= PASSWORD_MAX_LENGTH) {
+                                            setPassword(nextPassword);
+                                        }
+                                    }}
+                                    className="w-full"
+                                    inputClassName="w-full"
+                                    toggleMask
+                                    feedback={false}
+                                />
                             </div>
+                            {mode === 'register' && (
+                                <div className="col-12 mb-2">
+                                    <label className="text-600 text-sm mb-1 block">Confirmar contraseña</label>
+                                    <Password
+                                        value={confirmPassword}
+                                        onChange={(e) => {
+                                            const nextPassword = e.target.value;
+                                            if (nextPassword.length <= PASSWORD_MAX_LENGTH) {
+                                                setConfirmPassword(nextPassword);
+                                            }
+                                        }}
+                                        className="w-full"
+                                        inputClassName="w-full"
+                                        toggleMask
+                                        feedback={false}
+                                    />
+                                </div>
+                            )}
                             {mode === 'register' && (
                                 <div className="col-12 mb-2">
                                     <label className="text-600 text-sm mb-1 block">Rol</label>
@@ -233,7 +331,12 @@ const Login: Page = () => {
                             <Button
                                 label={mode === 'login' ? 'Crear una cuenta' : 'Ya tengo cuenta'}
                                 className="p-button-text"
-                                onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
+                                onClick={() => {
+                                    const nextMode = mode === 'login' ? 'register' : 'login';
+                                    setMode(nextMode);
+                                    setConfirmPassword('');
+                                    setError(null);
+                                }}
                             />
                         </div>
 

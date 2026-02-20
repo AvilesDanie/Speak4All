@@ -8,6 +8,9 @@ from ..deps import get_current_user
 
 router = APIRouter(prefix="/profiles", tags=["profiles"])
 
+PROFILE_NAME_MAX_LENGTH = 80
+PROFILE_DESCRIPTION_MAX_LENGTH = 500
+
 
 def require_therapist(user: models.User):
     if user.role != models.UserRole.THERAPIST:
@@ -28,10 +31,31 @@ def create_profile(
     """Crear un nuevo perfil de estudiante para personalización de ejercicios con IA"""
     require_therapist(current_user)
     
+    normalized_name = body.name.strip()
+    normalized_description = body.description.strip()
+
+    if not normalized_name or not normalized_description:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nombre y descripción son obligatorios.",
+        )
+
+    if len(normalized_name) > PROFILE_NAME_MAX_LENGTH:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"El nombre no puede superar {PROFILE_NAME_MAX_LENGTH} caracteres.",
+        )
+
+    if len(normalized_description) > PROFILE_DESCRIPTION_MAX_LENGTH:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"La descripción no puede superar {PROFILE_DESCRIPTION_MAX_LENGTH} caracteres.",
+        )
+
     profile = models.Profile(
         therapist_id=current_user.id,
-        name=body.name,
-        description=body.description,
+        name=normalized_name,
+        description=normalized_description,
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
@@ -112,10 +136,32 @@ def update_profile(
         )
     
     if body.name is not None:
-        profile.name = body.name
+        normalized_name = body.name.strip()
+        if not normalized_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El nombre no puede estar vacío.",
+            )
+        if len(normalized_name) > PROFILE_NAME_MAX_LENGTH:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"El nombre no puede superar {PROFILE_NAME_MAX_LENGTH} caracteres.",
+            )
+        profile.name = normalized_name
     
     if body.description is not None:
-        profile.description = body.description
+        normalized_description = body.description.strip()
+        if not normalized_description:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La descripción no puede estar vacía.",
+            )
+        if len(normalized_description) > PROFILE_DESCRIPTION_MAX_LENGTH:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"La descripción no puede superar {PROFILE_DESCRIPTION_MAX_LENGTH} caracteres.",
+            )
+        profile.description = normalized_description
     
     profile.updated_at = datetime.now(timezone.utc)
     

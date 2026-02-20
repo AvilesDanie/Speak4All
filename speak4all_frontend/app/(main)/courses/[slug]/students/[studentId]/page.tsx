@@ -122,6 +122,11 @@ const StudentProgressPage: React.FC = () => {
     const [exercisePageSize, setExercisePageSize] = useState(10);
     const [showFilters, setShowFilters] = useState(true);
 
+    const isEndDateBeforeStartDate = (from: Date | null, to: Date | null) => {
+        if (!from || !to) return false;
+        return to.getTime() < from.getTime();
+    };
+
     // Cargar token y role
     useEffect(() => {
         if (typeof window === 'undefined') return;
@@ -762,7 +767,12 @@ const StudentProgressPage: React.FC = () => {
                                     <Calendar
                                         value={exerciseDueDateFrom}
                                         onChange={(e) => {
-                                            setExerciseDueDateFrom(e.value as Date | null);
+                                            const nextFrom = e.value as Date | null;
+                                            setExerciseDueDateFrom(nextFrom);
+                                            if (isEndDateBeforeStartDate(nextFrom, exerciseDueDateTo)) {
+                                                setExerciseDueDateTo(null);
+                                                setErrorMsg('La fecha final no puede ser anterior a la fecha inicial.');
+                                            }
                                             setExercisePage(0);
                                         }}
                                         showIcon
@@ -776,12 +786,18 @@ const StudentProgressPage: React.FC = () => {
                                     <Calendar
                                         value={exerciseDueDateTo}
                                         onChange={(e) => {
-                                            setExerciseDueDateTo(e.value as Date | null);
+                                            const nextTo = e.value as Date | null;
+                                            if (isEndDateBeforeStartDate(exerciseDueDateFrom, nextTo)) {
+                                                setErrorMsg('La fecha final no puede ser anterior a la fecha inicial.');
+                                                return;
+                                            }
+                                            setExerciseDueDateTo(nextTo);
                                             setExercisePage(0);
                                         }}
                                         showIcon
                                         dateFormat="dd/mm/yy"
                                         placeholder="Fecha final"
+                                        minDate={exerciseDueDateFrom ?? undefined}
                                         className="w-full"
                                     />
                                 </div>
@@ -790,7 +806,12 @@ const StudentProgressPage: React.FC = () => {
                                     <Calendar
                                         value={exerciseSubmittedFrom}
                                         onChange={(e) => {
-                                            setExerciseSubmittedFrom(e.value as Date | null);
+                                            const nextFrom = e.value as Date | null;
+                                            setExerciseSubmittedFrom(nextFrom);
+                                            if (isEndDateBeforeStartDate(nextFrom, exerciseSubmittedTo)) {
+                                                setExerciseSubmittedTo(null);
+                                                setErrorMsg('La fecha final no puede ser anterior a la fecha inicial.');
+                                            }
                                             setExercisePage(0);
                                         }}
                                         showIcon
@@ -804,12 +825,18 @@ const StudentProgressPage: React.FC = () => {
                                     <Calendar
                                         value={exerciseSubmittedTo}
                                         onChange={(e) => {
-                                            setExerciseSubmittedTo(e.value as Date | null);
+                                            const nextTo = e.value as Date | null;
+                                            if (isEndDateBeforeStartDate(exerciseSubmittedFrom, nextTo)) {
+                                                setErrorMsg('La fecha final no puede ser anterior a la fecha inicial.');
+                                                return;
+                                            }
+                                            setExerciseSubmittedTo(nextTo);
                                             setExercisePage(0);
                                         }}
                                         showIcon
                                         dateFormat="dd/mm/yy"
                                         placeholder="Fecha final"
+                                        minDate={exerciseSubmittedFrom ?? undefined}
                                         className="w-full"
                                     />
                                 </div>

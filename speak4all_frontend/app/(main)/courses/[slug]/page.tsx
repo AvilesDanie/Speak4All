@@ -15,7 +15,7 @@ import { Dropdown } from 'primereact/dropdown';
 import { Paginator, PaginatorPageChangeEvent } from 'primereact/paginator';
 import PublishExerciseDialog from './PublishExerciseDialog';
 import AudioPlayer from '../../exercises/AudioPlayer';
-import { API_BASE } from '@/services/apiClient';
+import { normalizeBackendUrl, mediaPathToUrl } from '@/services/apiClient';
 import {
     getMyCourses,
     getCourseJoinRequests,
@@ -40,13 +40,11 @@ import { useExerciseNotifications } from '@/contexts/ExerciseNotificationContext
 
 // Evidencias de entrega (foto/video) usan URLs provistas por el backend
 const buildAvatarUrl = (path?: string | null) => {
-    // Si es null o undefined, no hay avatar
-    if (!path) return null;
-    // Si ya es una URL completa (http/https), devolverla tal cual
-    if (path.startsWith('http')) return path;
-    // Si es una ruta relativa del backend (por compatibilidad con almacenamiento local)
-    const normalized = path.startsWith('/') ? path : `/${path}`;
-    return `${API_BASE}${normalized}`;
+    return mediaPathToUrl(path);
+};
+
+const resolveStudentAvatarUrl = (avatarUrl?: string | null, avatarPath?: string | null) => {
+    return normalizeBackendUrl(avatarUrl) || buildAvatarUrl(avatarPath);
 };
 
 type Role = 'THERAPIST' | 'STUDENT';
@@ -180,6 +178,11 @@ const CoursePage: React.FC = () => {
     const [showStudentExercisesFilters, setShowStudentExercisesFilters] = useState(true);
 
     const showError = (msg: string) => setErrorMsg(msg);
+
+    const isEndDateBeforeStartDate = (from: Date | null, to: Date | null) => {
+        if (!from || !to) return false;
+        return to.getTime() < from.getTime();
+    };
 
     // Debounce para recargar progreso
     const progressReloadTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -632,7 +635,14 @@ const CoursePage: React.FC = () => {
                             <label className="text-sm text-600">Desde</label>
                             <Calendar
                                 value={requestFromDate}
-                                onChange={(e) => setRequestFromDate(e.value as Date | null)}
+                                onChange={(e) => {
+                                    const nextFrom = e.value as Date | null;
+                                    setRequestFromDate(nextFrom);
+                                    if (isEndDateBeforeStartDate(nextFrom, requestToDate)) {
+                                        setRequestToDate(null);
+                                        showError('La fecha final no puede ser anterior a la fecha inicial.');
+                                    }
+                                }}
                                 dateFormat="dd/mm/yy"
                                 showIcon
                                 className="w-full"
@@ -642,9 +652,17 @@ const CoursePage: React.FC = () => {
                             <label className="text-sm text-600">Hasta</label>
                             <Calendar
                                 value={requestToDate}
-                                onChange={(e) => setRequestToDate(e.value as Date | null)}
+                                onChange={(e) => {
+                                    const nextTo = e.value as Date | null;
+                                    if (isEndDateBeforeStartDate(requestFromDate, nextTo)) {
+                                        showError('La fecha final no puede ser anterior a la fecha inicial.');
+                                        return;
+                                    }
+                                    setRequestToDate(nextTo);
+                                }}
                                 dateFormat="dd/mm/yy"
                                 showIcon
+                                minDate={requestFromDate ?? undefined}
                                 className="w-full"
                             />
                         </div>
@@ -673,14 +691,16 @@ const CoursePage: React.FC = () => {
                 )}
 
                 <div className="grid">
-                    {paginatedRequests.map((r) => (
+                    {paginatedRequests.map((r) => {
+                        const requestAvatarUrl = resolveStudentAvatarUrl(r.student_avatar_url, r.student_avatar_path);
+                        return (
                         <div key={r.id} className="col-12 md:col-6">
                             <div className="card flex flex-column gap-2">
                                 <div className="flex justify-content-between align-items-start gap-3">
                                     <div className="flex align-items-center gap-3">
                                         <Avatar
-                                            image={(r.student_avatar_url || buildAvatarUrl(r.student_avatar_path)) || undefined}
-                                            label={!(r.student_avatar_url || buildAvatarUrl(r.student_avatar_path)) ? (r.student_full_name || 'Alumno').charAt(0).toUpperCase() : undefined}
+                                            image={requestAvatarUrl || undefined}
+                                            label={!requestAvatarUrl ? (r.student_full_name || 'Alumno').charAt(0).toUpperCase() : undefined}
                                             shape="circle"
                                             size="large"
                                         />
@@ -722,7 +742,7 @@ const CoursePage: React.FC = () => {
                                 </div>
                             </div>
                         </div>
-                    ))}
+                    )})}
                 </div>
 
                 {/* Paginación */}
@@ -855,7 +875,12 @@ const CoursePage: React.FC = () => {
                             <Calendar
                                 value={studentsLastSubmissionFrom}
                                 onChange={(e) => {
-                                    setStudentsLastSubmissionFrom(e.value as Date | null);
+                                    const nextFrom = e.value as Date | null;
+                                    setStudentsLastSubmissionFrom(nextFrom);
+                                    if (isEndDateBeforeStartDate(nextFrom, studentsLastSubmissionTo)) {
+                                        setStudentsLastSubmissionTo(null);
+                                        showError('La fecha final no puede ser anterior a la fecha inicial.');
+                                    }
                                     setStudentsPage(0);
                                 }}
                                 showIcon
@@ -869,12 +894,18 @@ const CoursePage: React.FC = () => {
                             <Calendar
                                 value={studentsLastSubmissionTo}
                                 onChange={(e) => {
-                                    setStudentsLastSubmissionTo(e.value as Date | null);
+                                    const nextTo = e.value as Date | null;
+                                    if (isEndDateBeforeStartDate(studentsLastSubmissionFrom, nextTo)) {
+                                        showError('La fecha final no puede ser anterior a la fecha inicial.');
+                                        return;
+                                    }
+                                    setStudentsLastSubmissionTo(nextTo);
                                     setStudentsPage(0);
                                 }}
                                 showIcon
                                 dateFormat="dd/mm/yy"
                                 placeholder="Fecha final"
+                                minDate={studentsLastSubmissionFrom ?? undefined}
                                 className="w-full"
                             />
                         </div>
@@ -1076,7 +1107,12 @@ const CoursePage: React.FC = () => {
                             <Calendar
                                 value={therapistExercisesPublishedFrom}
                                 onChange={(e) => {
-                                    setTherapistExercisesPublishedFrom(e.value as Date | null);
+                                    const nextFrom = e.value as Date | null;
+                                    setTherapistExercisesPublishedFrom(nextFrom);
+                                    if (isEndDateBeforeStartDate(nextFrom, therapistExercisesPublishedTo)) {
+                                        setTherapistExercisesPublishedTo(null);
+                                        showError('La fecha final no puede ser anterior a la fecha inicial.');
+                                    }
                                     setTherapistExercisesPage(0);
                                 }}
                                 showIcon
@@ -1090,12 +1126,18 @@ const CoursePage: React.FC = () => {
                             <Calendar
                                 value={therapistExercisesPublishedTo}
                                 onChange={(e) => {
-                                    setTherapistExercisesPublishedTo(e.value as Date | null);
+                                    const nextTo = e.value as Date | null;
+                                    if (isEndDateBeforeStartDate(therapistExercisesPublishedFrom, nextTo)) {
+                                        showError('La fecha final no puede ser anterior a la fecha inicial.');
+                                        return;
+                                    }
+                                    setTherapistExercisesPublishedTo(nextTo);
                                     setTherapistExercisesPage(0);
                                 }}
                                 showIcon
                                 dateFormat="dd/mm/yy"
                                 placeholder="Fecha final"
+                                minDate={therapistExercisesPublishedFrom ?? undefined}
                                 className="w-full"
                             />
                         </div>
@@ -1332,7 +1374,12 @@ const CoursePage: React.FC = () => {
                             <Calendar
                                 value={progressLastSubmissionFrom}
                                 onChange={(e) => {
-                                    setProgressLastSubmissionFrom(e.value as Date | null);
+                                    const nextFrom = e.value as Date | null;
+                                    setProgressLastSubmissionFrom(nextFrom);
+                                    if (isEndDateBeforeStartDate(nextFrom, progressLastSubmissionTo)) {
+                                        setProgressLastSubmissionTo(null);
+                                        showError('La fecha final no puede ser anterior a la fecha inicial.');
+                                    }
                                     setProgressPage(0);
                                 }}
                                 showIcon
@@ -1346,12 +1393,18 @@ const CoursePage: React.FC = () => {
                             <Calendar
                                 value={progressLastSubmissionTo}
                                 onChange={(e) => {
-                                    setProgressLastSubmissionTo(e.value as Date | null);
+                                    const nextTo = e.value as Date | null;
+                                    if (isEndDateBeforeStartDate(progressLastSubmissionFrom, nextTo)) {
+                                        showError('La fecha final no puede ser anterior a la fecha inicial.');
+                                        return;
+                                    }
+                                    setProgressLastSubmissionTo(nextTo);
                                     setProgressPage(0);
                                 }}
                                 showIcon
                                 dateFormat="dd/mm/yy"
                                 placeholder="Fecha final"
+                                minDate={progressLastSubmissionFrom ?? undefined}
                                 className="w-full"
                             />
                         </div>
@@ -1662,7 +1715,12 @@ const CoursePage: React.FC = () => {
                             <Calendar
                                 value={studentExercisesPublishedFrom}
                                 onChange={(e) => {
-                                    setStudentExercisesPublishedFrom(e.value as Date | null);
+                                    const nextFrom = e.value as Date | null;
+                                    setStudentExercisesPublishedFrom(nextFrom);
+                                    if (isEndDateBeforeStartDate(nextFrom, studentExercisesPublishedTo)) {
+                                        setStudentExercisesPublishedTo(null);
+                                        showError('La fecha final no puede ser anterior a la fecha inicial.');
+                                    }
                                     setStudentExercisesPage(0);
                                 }}
                                 showIcon
@@ -1676,12 +1734,18 @@ const CoursePage: React.FC = () => {
                             <Calendar
                                 value={studentExercisesPublishedTo}
                                 onChange={(e) => {
-                                    setStudentExercisesPublishedTo(e.value as Date | null);
+                                    const nextTo = e.value as Date | null;
+                                    if (isEndDateBeforeStartDate(studentExercisesPublishedFrom, nextTo)) {
+                                        showError('La fecha final no puede ser anterior a la fecha inicial.');
+                                        return;
+                                    }
+                                    setStudentExercisesPublishedTo(nextTo);
                                     setStudentExercisesPage(0);
                                 }}
                                 showIcon
                                 dateFormat="dd/mm/yy"
                                 placeholder="Fecha final"
+                                minDate={studentExercisesPublishedFrom ?? undefined}
                                 className="w-full"
                             />
                         </div>

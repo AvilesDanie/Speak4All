@@ -66,7 +66,7 @@ class GoogleLoginRequest(BaseModel):
 
 class RegisterRequest(BaseModel):
     email: str
-    full_name: str
+    full_name: str = Field(..., min_length=1, max_length=80)
     role: UserRole
     password: str
 
@@ -99,7 +99,7 @@ class CourseOut(BaseModel):
 
 
 class JoinCourseRequest(BaseModel):
-    join_code: str
+    join_code: str = Field(..., min_length=4, max_length=32)
 
 
 class CourseJoinRequestOut(BaseModel):
@@ -598,13 +598,13 @@ class SubmissionWithEvaluation(BaseModel):
 # ==== PROFILE (PERFILES DE ESTUDIANTE) ====
 
 class ProfileCreate(BaseModel):
-    name: str
-    description: str
+    name: str = Field(..., min_length=1, max_length=80)
+    description: str = Field(..., min_length=1, max_length=500)
 
 
 class ProfileUpdate(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
+    name: Optional[str] = Field(None, max_length=80)
+    description: Optional[str] = Field(None, max_length=500)
 
 
 class ProfileOut(BaseModel):

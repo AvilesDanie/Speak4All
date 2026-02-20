@@ -22,6 +22,8 @@ import {
 import { Profile, getProfiles, createProfile, updateProfile, deleteProfile } from '@/services/profiles';
 
 const AUDIO_BASE_URL = API_BASE;
+const PROFILE_NAME_MAX_LENGTH = 80;
+const PROFILE_DESCRIPTION_MAX_LENGTH = 500;
 
 const stripRepTags = (value: string): string => {
     return value
@@ -706,18 +708,32 @@ const CreateExercisePage: React.FC = () => {
                             disabled={savingProfile}
                             onClick={async () => {
                                 if (!token) return;
-                                if (!profileName.trim() || !profileDescription.trim()) {
+                                const normalizedProfileName = profileName.trim();
+                                const normalizedProfileDescription = profileDescription.trim();
+
+                                if (!normalizedProfileName || !normalizedProfileDescription) {
                                     setErrorMsg('Nombre y descripción del perfil son obligatorios.');
                                     return;
                                 }
+
+                                if (normalizedProfileName.length > PROFILE_NAME_MAX_LENGTH) {
+                                    setErrorMsg(`El nombre del perfil no puede superar ${PROFILE_NAME_MAX_LENGTH} caracteres.`);
+                                    return;
+                                }
+
+                                if (normalizedProfileDescription.length > PROFILE_DESCRIPTION_MAX_LENGTH) {
+                                    setErrorMsg(`La descripción del perfil no puede superar ${PROFILE_DESCRIPTION_MAX_LENGTH} caracteres.`);
+                                    return;
+                                }
+
                                 setSavingProfile(true);
                                 try {
                                     if (profileDialogMode === 'create') {
-                                        const created = await createProfile(token, profileName.trim(), profileDescription.trim());
+                                        const created = await createProfile(token, normalizedProfileName, normalizedProfileDescription);
                                         setProfiles((prev) => [created, ...prev]);
                                         setSelectedProfileId(created.id);
                                     } else if (editingProfileId) {
-                                        const updated = await updateProfile(token, editingProfileId, profileName.trim(), profileDescription.trim());
+                                        const updated = await updateProfile(token, editingProfileId, normalizedProfileName, normalizedProfileDescription);
                                         setProfiles((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
                                     }
                                     setProfileDialogVisible(false);
@@ -736,21 +752,35 @@ const CreateExercisePage: React.FC = () => {
                     <label className="block font-medium mb-2">Nombre</label>
                     <InputText
                         value={profileName}
-                        onChange={(e) => setProfileName(e.target.value)}
+                        onChange={(e) => {
+                            const nextValue = e.target.value;
+                            if (nextValue.length <= PROFILE_NAME_MAX_LENGTH) {
+                                setProfileName(nextValue);
+                            }
+                        }}
+                        maxLength={PROFILE_NAME_MAX_LENGTH}
                         placeholder="Ej. Niños con dislexia leve"
                         className="w-full"
                     />
+                    <small className="text-600">Máx. {PROFILE_NAME_MAX_LENGTH} caracteres.</small>
                 </div>
                 <div className="field">
                     <label className="block font-medium mb-2">Descripción</label>
                     <InputTextarea
                         value={profileDescription}
-                        onChange={(e) => setProfileDescription(e.target.value)}
+                        onChange={(e) => {
+                            const nextValue = e.target.value;
+                            if (nextValue.length <= PROFILE_DESCRIPTION_MAX_LENGTH) {
+                                setProfileDescription(nextValue);
+                            }
+                        }}
                         rows={4}
                         autoResize
+                        maxLength={PROFILE_DESCRIPTION_MAX_LENGTH}
                         placeholder="Describe características, necesidades y tono deseado para este perfil"
                         className="w-full"
                     />
+                    <small className="text-600">Máx. {PROFILE_DESCRIPTION_MAX_LENGTH} caracteres.</small>
                 </div>
             </Dialog>
 

@@ -223,12 +223,44 @@ const CoursesPage: React.FC = () => {
     const primaryLabel = role === 'THERAPIST' ? 'Crear curso' : role === 'STUDENT' ? 'Unirse a un curso' : 'Acción';
     const primaryIcon = role === 'THERAPIST' ? 'pi pi-plus' : 'pi pi-sign-in';
 
-    const handleCopyCode = async (code: string) => {
+    const fallbackCopyText = (text: string): boolean => {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        textarea.style.pointerEvents = 'none';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+
         try {
-            await navigator.clipboard.writeText(code);
+            return document.execCommand('copy');
+        } finally {
+            document.body.removeChild(textarea);
+        }
+    };
+
+    const handleCopyCode = async (code: string) => {
+        let copied = false;
+
+        try {
+            if (navigator.clipboard?.writeText && window.isSecureContext) {
+                await navigator.clipboard.writeText(code);
+                copied = true;
+            } else {
+                copied = fallbackCopyText(code);
+            }
+        } catch {
+            copied = fallbackCopyText(code);
+        }
+
+        if (copied) {
             setCopiedCode(code);
             setTimeout(() => setCopiedCode(null), 2000);
-        } catch { console.error('No se pudo copiar el código'); }
+        } else {
+            console.error('No se pudo copiar el código');
+        }
     };
 
     const handleDeleteGroup = async () => {
