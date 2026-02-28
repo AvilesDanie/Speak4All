@@ -27,6 +27,7 @@ import { API_BASE } from '@/services/apiClient';
 
 const EMAIL_MIN_LENGTH = 5;
 const EMAIL_MAX_LENGTH = 254;
+const EMAIL_FORMAT_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PASSWORD_MIN_LENGTH = 6;
 const PASSWORD_MAX_LENGTH = 72;
 const FULL_NAME_MAX_LENGTH = 80;
@@ -187,6 +188,16 @@ export default function ProfilePage() {
                 severity: 'warn',
                 summary: 'Email inválido',
                 detail: `El correo debe tener entre ${EMAIL_MIN_LENGTH} y ${EMAIL_MAX_LENGTH} caracteres`,
+                life: 3000,
+            });
+            return;
+        }
+
+        if (!EMAIL_FORMAT_REGEX.test(normalizedEmail)) {
+            toast.current?.show({
+                severity: 'warn',
+                summary: 'Email inválido',
+                detail: 'Ingresa un correo válido (ejemplo@dominio.com)',
                 life: 3000,
             });
             return;

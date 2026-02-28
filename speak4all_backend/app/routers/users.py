@@ -17,6 +17,7 @@ ALLOWED_AVATAR_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 MAX_AVATAR_SIZE_MB = 5
 EMAIL_MIN_LENGTH = 5
 EMAIL_MAX_LENGTH = 254
+EMAIL_FORMAT_REGEX = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 PASSWORD_MIN_LENGTH = 6
 PASSWORD_MAX_LENGTH = 72
 FULL_NAME_MAX_LENGTH = 80
@@ -78,6 +79,12 @@ def update_my_profile(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"El correo debe tener entre {EMAIL_MIN_LENGTH} y {EMAIL_MAX_LENGTH} caracteres"
+            )
+
+        if not EMAIL_FORMAT_REGEX.fullmatch(normalized_email):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El correo no tiene un formato válido"
             )
 
         # Verificar que el email no esté en uso por otro usuario
