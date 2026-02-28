@@ -10,10 +10,19 @@ import { signIn } from 'next-auth/react';
 
 const EMAIL_MIN_LENGTH = 5;
 const EMAIL_MAX_LENGTH = 254;
+const EMAIL_FORMAT_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PASSWORD_MIN_LENGTH = 6;
 const PASSWORD_MAX_LENGTH = 72;
 const FULL_NAME_MAX_LENGTH = 80;
 const FULL_NAME_ALLOWED_REGEX = /^[A-Za-zÁÉÍÓÚáéíóúÑñÜü\s]+$/;
+
+type FieldErrors = {
+    email?: string;
+    password?: string;
+    confirmPassword?: string;
+    fullName?: string;
+    role?: string;
+};
 
 const Login: Page = () => {
     const router = useRouter();
@@ -25,6 +34,7 @@ const Login: Page = () => {
     const [confirmPassword, setConfirmPassword] = useState('');
     const [fullName, setFullName] = useState('');
     const [role, setRole] = useState<'THERAPIST' | 'STUDENT' | null>(null);
+    const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -32,33 +42,80 @@ const Login: Page = () => {
         signIn('google', { callbackUrl: '/' });
     };
 
-    const validateCredentialsLength = () => {
+    const validateLocalForm = () => {
+        const errors: FieldErrors = {};
         const normalizedEmail = email.trim();
+        const normalizedFullName = fullName.trim();
 
-        if (normalizedEmail.length < EMAIL_MIN_LENGTH || normalizedEmail.length > EMAIL_MAX_LENGTH) {
-            setError(`El correo debe tener entre ${EMAIL_MIN_LENGTH} y ${EMAIL_MAX_LENGTH} caracteres.`);
-            return false;
+        if (!normalizedEmail) {
+            errors.email = 'El correo es obligatorio.';
+        } else {
+            if (normalizedEmail.length < EMAIL_MIN_LENGTH || normalizedEmail.length > EMAIL_MAX_LENGTH) {
+                errors.email = `El correo debe tener entre ${EMAIL_MIN_LENGTH} y ${EMAIL_MAX_LENGTH} caracteres.`;
+            } else if (!EMAIL_FORMAT_REGEX.test(normalizedEmail)) {
+                errors.email = 'Ingresa un correo válido (ejemplo@dominio.com).';
+            }
         }
 
-        if (password.length < PASSWORD_MIN_LENGTH || password.length > PASSWORD_MAX_LENGTH) {
-            setError(`La contraseña debe tener entre ${PASSWORD_MIN_LENGTH} y ${PASSWORD_MAX_LENGTH} caracteres.`);
-            return false;
+        if (!password) {
+            errors.password = 'La contraseña es obligatoria.';
+        } else if (password.length < PASSWORD_MIN_LENGTH || password.length > PASSWORD_MAX_LENGTH) {
+            errors.password = `La contraseña debe tener entre ${PASSWORD_MIN_LENGTH} y ${PASSWORD_MAX_LENGTH} caracteres.`;
         }
 
-        return true;
+        if (mode === 'register') {
+            if (!normalizedFullName) {
+                errors.fullName = 'El nombre es obligatorio.';
+            } else if (normalizedFullName.length > FULL_NAME_MAX_LENGTH) {
+                errors.fullName = `El nombre debe tener máximo ${FULL_NAME_MAX_LENGTH} caracteres.`;
+            } else if (!FULL_NAME_ALLOWED_REGEX.test(normalizedFullName)) {
+                errors.fullName = 'El nombre solo puede contener letras y espacios.';
+            }
+
+            if (!confirmPassword) {
+                errors.confirmPassword = 'Confirma tu contraseña.';
+            } else if (password && password !== confirmPassword) {
+                errors.confirmPassword = 'Las contraseñas no coinciden.';
+            }
+
+            if (!role) {
+                errors.role = 'Selecciona un rol.';
+            }
+        }
+
+        setFieldErrors(errors);
+
+        return Object.keys(errors).length === 0;
+    };
+
+    const parseApiError = (errorData: unknown, fallback: string) => {
+        if (typeof errorData === 'object' && errorData !== null && 'detail' in errorData) {
+            const detail = (errorData as { detail?: unknown }).detail;
+            if (typeof detail === 'string') {
+                return detail;
+            }
+
+            if (Array.isArray(detail)) {
+                const firstMsg = detail.find((item) => typeof item === 'object' && item && 'msg' in item) as
+                    | { msg?: string }
+                    | undefined;
+
+                if (firstMsg?.msg) {
+                    return firstMsg.msg;
+                }
+            }
+        }
+
+        return fallback;
     };
 
     const handleLocalAuth = async () => {
         try {
             setLoading(true);
             setError(null);
+            setFieldErrors({});
 
-            if (!email || !password) {
-                setError('Completa email y contraseña.');
-                return;
-            }
-
-            if (!validateCredentialsLength()) {
+            if (!validateLocalForm()) {
                 return;
             }
 
@@ -66,31 +123,6 @@ const Login: Page = () => {
             const normalizedFullName = fullName.trim();
 
             if (mode === 'register') {
-                if (!normalizedFullName || !role) {
-                    setError('Completa nombre y rol.');
-                    return;
-                }
-
-                if (!confirmPassword) {
-                    setError('Confirma tu contraseña.');
-                    return;
-                }
-
-                if (password !== confirmPassword) {
-                    setError('Las contraseñas no coinciden.');
-                    return;
-                }
-
-                if (normalizedFullName.length > FULL_NAME_MAX_LENGTH) {
-                    setError(`El nombre debe tener máximo ${FULL_NAME_MAX_LENGTH} caracteres.`);
-                    return;
-                }
-
-                if (!FULL_NAME_ALLOWED_REGEX.test(normalizedFullName)) {
-                    setError('El nombre solo puede contener letras y espacios.');
-                    return;
-                }
-
                 const res = await fetch('/api/backend/auth/register', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -98,7 +130,7 @@ const Login: Page = () => {
                 });
                 if (!res.ok) {
                     const errorData = await res.json().catch(() => ({ detail: 'No se pudo registrar.' }));
-                    setError(errorData.detail || 'No se pudo registrar.');
+                    setError(parseApiError(errorData, 'No se pudo registrar.'));
                     return;
                 }
                 const data = await res.json();
@@ -120,7 +152,7 @@ const Login: Page = () => {
             });
             if (!res.ok) {
                 const errorData = await res.json().catch(() => ({ detail: 'Credenciales inválidas.' }));
-                setError(errorData.detail || 'Credenciales inválidas.');
+                setError(parseApiError(errorData, 'Credenciales inválidas.'));
                 return;
             }
             const data = await res.json();
@@ -256,22 +288,32 @@ const Login: Page = () => {
                                             const nextValue = e.target.value;
                                             if (nextValue.length <= FULL_NAME_MAX_LENGTH) {
                                                 setFullName(nextValue);
+                                                if (fieldErrors.fullName) {
+                                                    setFieldErrors((prev) => ({ ...prev, fullName: undefined }));
+                                                }
                                             }
                                         }}
-                                        className="w-full"
+                                        className={`w-full ${fieldErrors.fullName ? 'p-invalid' : ''}`}
                                         maxLength={FULL_NAME_MAX_LENGTH}
                                     />
+                                    {fieldErrors.fullName && <small className="p-error block mt-1">{fieldErrors.fullName}</small>}
                                 </div>
                             )}
                             <div className="col-12 mb-2">
                                 <label className="text-600 text-sm mb-1 block">Correo</label>
                                 <InputText
                                     value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
-                                    className="w-full"
+                                    onChange={(e) => {
+                                        setEmail(e.target.value);
+                                        if (fieldErrors.email) {
+                                            setFieldErrors((prev) => ({ ...prev, email: undefined }));
+                                        }
+                                    }}
+                                    className={`w-full ${fieldErrors.email ? 'p-invalid' : ''}`}
                                     minLength={EMAIL_MIN_LENGTH}
                                     maxLength={EMAIL_MAX_LENGTH}
                                 />
+                                {fieldErrors.email && <small className="p-error block mt-1">{fieldErrors.email}</small>}
                             </div>
                             <div className="col-12 mb-2">
                                 <label className="text-600 text-sm mb-1 block">Contraseña</label>
@@ -281,13 +323,17 @@ const Login: Page = () => {
                                         const nextPassword = e.target.value;
                                         if (nextPassword.length <= PASSWORD_MAX_LENGTH) {
                                             setPassword(nextPassword);
+                                            if (fieldErrors.password) {
+                                                setFieldErrors((prev) => ({ ...prev, password: undefined }));
+                                            }
                                         }
                                     }}
                                     className="w-full"
-                                    inputClassName="w-full"
+                                    inputClassName={`w-full ${fieldErrors.password ? 'p-invalid' : ''}`}
                                     toggleMask
                                     feedback={false}
                                 />
+                                {fieldErrors.password && <small className="p-error block mt-1">{fieldErrors.password}</small>}
                             </div>
                             {mode === 'register' && (
                                 <div className="col-12 mb-2">
@@ -298,19 +344,35 @@ const Login: Page = () => {
                                             const nextPassword = e.target.value;
                                             if (nextPassword.length <= PASSWORD_MAX_LENGTH) {
                                                 setConfirmPassword(nextPassword);
+                                                if (fieldErrors.confirmPassword) {
+                                                    setFieldErrors((prev) => ({ ...prev, confirmPassword: undefined }));
+                                                }
                                             }
                                         }}
                                         className="w-full"
-                                        inputClassName="w-full"
+                                        inputClassName={`w-full ${fieldErrors.confirmPassword ? 'p-invalid' : ''}`}
                                         toggleMask
                                         feedback={false}
                                     />
+                                    {fieldErrors.confirmPassword && <small className="p-error block mt-1">{fieldErrors.confirmPassword}</small>}
                                 </div>
                             )}
                             {mode === 'register' && (
                                 <div className="col-12 mb-2">
                                     <label className="text-600 text-sm mb-1 block">Rol</label>
-                                    <Dropdown value={role} onChange={(e) => setRole(e.value)} className="w-full" options={[{ label: 'Terapeuta', value: 'THERAPIST' }, { label: 'Estudiante', value: 'STUDENT' }]} placeholder="Selecciona rol" />
+                                    <Dropdown
+                                        value={role}
+                                        onChange={(e) => {
+                                            setRole(e.value);
+                                            if (fieldErrors.role) {
+                                                setFieldErrors((prev) => ({ ...prev, role: undefined }));
+                                            }
+                                        }}
+                                        className={`w-full ${fieldErrors.role ? 'p-invalid' : ''}`}
+                                        options={[{ label: 'Terapeuta', value: 'THERAPIST' }, { label: 'Estudiante', value: 'STUDENT' }]}
+                                        placeholder="Selecciona rol"
+                                    />
+                                    {fieldErrors.role && <small className="p-error block mt-1">{fieldErrors.role}</small>}
                                 </div>
                             )}
                         </div>
@@ -335,6 +397,7 @@ const Login: Page = () => {
                                     const nextMode = mode === 'login' ? 'register' : 'login';
                                     setMode(nextMode);
                                     setConfirmPassword('');
+                                    setFieldErrors({});
                                     setError(null);
                                 }}
                             />

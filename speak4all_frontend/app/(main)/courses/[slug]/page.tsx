@@ -830,7 +830,7 @@ const CoursePage: React.FC = () => {
                     <div className="card mb-3">
                         <h4 className="text-base font-semibold mb-3">Filtros</h4>
                         <div className="grid">
-                        <div className="col-12 md:col-3">
+                        <div className="col-12 md:col-6 xl:col-3">
                             <label className="block text-sm font-medium mb-2">Nombre</label>
                             <InputText
                                 value={studentsNameFilter}
@@ -842,7 +842,7 @@ const CoursePage: React.FC = () => {
                                 className="w-full"
                             />
                         </div>
-                        <div className="col-12 md:col-2">
+                        <div className="col-12 md:col-6 xl:col-2">
                             <label className="block text-sm font-medium mb-2">Progreso mín (%)</label>
                             <InputNumber
                                 value={studentsProgressMin}
@@ -856,7 +856,7 @@ const CoursePage: React.FC = () => {
                                 className="w-full"
                             />
                         </div>
-                        <div className="col-12 md:col-2">
+                        <div className="col-12 md:col-6 xl:col-2">
                             <label className="block text-sm font-medium mb-2">Progreso máx (%)</label>
                             <InputNumber
                                 value={studentsProgressMax}
@@ -870,7 +870,7 @@ const CoursePage: React.FC = () => {
                                 className="w-full"
                             />
                         </div>
-                        <div className="col-12 md:col-2">
+                        <div className="col-12 md:col-6 xl:col-2">
                             <label className="block text-sm font-medium mb-2">Última entrega desde</label>
                             <Calendar
                                 value={studentsLastSubmissionFrom}
@@ -889,7 +889,7 @@ const CoursePage: React.FC = () => {
                                 className="w-full"
                             />
                         </div>
-                        <div className="col-12 md:col-2">
+                        <div className="col-12 md:col-6 xl:col-2">
                             <label className="block text-sm font-medium mb-2">Última entrega hasta</label>
                             <Calendar
                                 value={studentsLastSubmissionTo}
@@ -909,11 +909,11 @@ const CoursePage: React.FC = () => {
                                 className="w-full"
                             />
                         </div>
-                        <div className="col-12 md:col-1 flex align-items-end">
+                        <div className="col-12 xl:col-1 flex align-items-end">
                             <Button
                                 label="Limpiar"
                                 icon="pi pi-filter-slash"
-                                className="p-button-text"
+                                className="p-button-text w-full xl:w-auto"
                                 onClick={() => {
                                     setStudentsNameFilter('');
                                     setStudentsProgressMin(null);
@@ -1317,7 +1317,7 @@ const CoursePage: React.FC = () => {
                     <div className="card mb-3">
                         <h4 className="text-base font-semibold mb-3">Filtros</h4>
                     <div className="grid">
-                        <div className="col-12 md:col-3">
+                        <div className="col-12 md:col-6 xl:col-2">
                             <label className="block text-sm font-medium mb-2">Nombre</label>
                             <InputText
                                 value={progressNameFilter}
@@ -1329,7 +1329,7 @@ const CoursePage: React.FC = () => {
                                 className="w-full"
                             />
                         </div>
-                        <div className="col-12 md:col-3">
+                        <div className="col-12 md:col-6 xl:col-2">
                             <label className="block text-sm font-medium mb-2">Email</label>
                             <InputText
                                 value={progressEmailFilter}
@@ -1341,7 +1341,7 @@ const CoursePage: React.FC = () => {
                                 className="w-full"
                             />
                         </div>
-                        <div className="col-12 md:col-1">
+                        <div className="col-12 md:col-6 xl:col-2">
                             <label className="block text-sm font-medium mb-2">Progreso mín (%)</label>
                             <InputNumber
                                 value={progressMin}
@@ -1355,7 +1355,7 @@ const CoursePage: React.FC = () => {
                                 className="w-full"
                             />
                         </div>
-                        <div className="col-12 md:col-1">
+                        <div className="col-12 md:col-6 xl:col-2">
                             <label className="block text-sm font-medium mb-2">Progreso máx (%)</label>
                             <InputNumber
                                 value={progressMax}
@@ -1369,7 +1369,7 @@ const CoursePage: React.FC = () => {
                                 className="w-full"
                             />
                         </div>
-                        <div className="col-12 md:col-2">
+                        <div className="col-12 md:col-6 xl:col-2">
                             <label className="block text-sm font-medium mb-2">Última entrega desde</label>
                             <Calendar
                                 value={progressLastSubmissionFrom}
@@ -1388,7 +1388,7 @@ const CoursePage: React.FC = () => {
                                 className="w-full"
                             />
                         </div>
-                        <div className="col-12 md:col-2">
+                        <div className="col-12 md:col-6 xl:col-2">
                             <label className="block text-sm font-medium mb-2">Última entrega hasta</label>
                             <Calendar
                                 value={progressLastSubmissionTo}

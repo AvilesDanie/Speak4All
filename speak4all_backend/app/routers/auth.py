@@ -16,6 +16,7 @@ router = APIRouter()
 
 EMAIL_MIN_LENGTH = 5
 EMAIL_MAX_LENGTH = 254
+EMAIL_FORMAT_REGEX = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 PASSWORD_MIN_LENGTH = 6
 PASSWORD_MAX_LENGTH = 72
 FULL_NAME_MAX_LENGTH = 80
@@ -181,6 +182,12 @@ def register(
         raise HTTPException(
             status_code=400,
             detail=f"El correo debe tener entre {EMAIL_MIN_LENGTH} y {EMAIL_MAX_LENGTH} caracteres",
+        )
+
+    if not EMAIL_FORMAT_REGEX.fullmatch(email):
+        raise HTTPException(
+            status_code=400,
+            detail="El correo no tiene un formato válido",
         )
 
     if len(payload.password) < PASSWORD_MIN_LENGTH or len(payload.password) > PASSWORD_MAX_LENGTH:
